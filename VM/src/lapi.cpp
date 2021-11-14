@@ -543,6 +543,13 @@ void lua_pushinteger(lua_State* L, int n)
     return;
 }
 
+void lua_pushllong(lua_State* L, long long int n)
+{
+    setnvalue(L->top, cast_num(n));
+    api_incr_top(L);
+    return;
+}
+
 void lua_pushunsigned(lua_State* L, unsigned u)
 {
     setnvalue(L->top, cast_num(u));
