@@ -15,6 +15,9 @@
 #undef EPSILON
 #define EPSILON (4.94065645841247E-324)
 
+#undef EPSILONF
+#define EPSILONF (1.401298E-45F)
+
 #undef PI
 #define PI (3.14159265358979323846)
 #define RADIANS_PER_DEGREE (PI / 180.0)
@@ -728,6 +731,8 @@ LUALIB_API int luaopen_math(lua_State* L)
     lua_setfield(L, -2, "huge");
     lua_pushnumber(L, EPSILON);
     lua_setfield(L, -2, "epsilon");
+    lua_pushnumber(L, EPSILONF);
+    lua_setfield(L, -2, "epsilonf");
     lua_pushnumber(L, NAN);
     lua_setfield(L, -2, "nan");
     lua_pushllong(L, LUA_MAXINTEGER);
