@@ -165,7 +165,17 @@ do   -- testing NaN
   a[1] = 1
   assert(not pcall(function () a[NaN] = 1 end))
   assert(a[NaN] == nil)
+  assert(math.nan ~= NaN)
+  assert(not (math.nan < NaN))
+  assert(not (math.nan <= NaN))
+  assert(not (math.nan > NaN))
+  assert(not (math.nan >= NaN))
+  assert(tostring(math.nan) == tostring(NaN))
 end
+
+-- testing epsilon
+local epsilon = math.epsilon
+assert(math.epsilon == math.nexttoward(0,1))
 
 -- require "checktable"
 -- stat(a)
@@ -230,6 +240,36 @@ assert(math.sign(inf) == 1)
 assert(math.sign(-inf) == -1)
 assert(math.sign(nan) == 0)
 
+-- signbit
+assert(math.signbit(0) == 0)
+assert(math.signbit(42) == 0)
+assert(math.signbit(-42) == 1)
+assert(math.signbit(inf) == 0)
+assert(math.signbit(-inf) == 1)
+assert(math.signbit(nan) == 0)
+
+-- classify
+assert(math.classify(0) == "zero")
+assert(math.classify(42) == "normal")
+assert(math.classify(-42) == "normal")
+assert(math.classify(epsilon) == "subnormal")
+assert(math.classify(inf) == "infinite")
+assert(math.classify(-inf) == "infinite")
+assert(math.classify(nan) == "NaN")
+
+-- is
+assert(not math.isnormal(0))
+assert(math.isnormal(42))
+assert(math.isnormal(-42))
+assert(not math.isnormal(epsilon))
+assert(math.isinf(inf))
+assert(math.isinf(-inf))
+assert(math.isnan(nan))
+assert(not math.isunordered(0, 0))
+assert(math.isunordered(nan, nan))
+assert(math.isunordered(0, nan))
+assert(math.isunordered(nan, 0))
+
 -- clamp
 assert(math.clamp(-1, 0, 1) == 0)
 assert(math.clamp(0.5, 0, 1) == 0.5)
@@ -251,6 +291,89 @@ assert(math.fmod(3, 2) == 1)
 assert(math.fmod(-3, 2) == -1)
 assert(math.fmod(3, -2) == 1)
 assert(math.fmod(-3, -2) == -1)
+
+-- remainder and remquo
+local rem, quo = math.remquo(10.3, 4.5)
+assert(math.remainder(10.3, 4.5) == rem)
+assert(math.approximately(rem, 1.3))
+assert(quo == 2)
+
+-- scalbn
+assert(math.scalbn(1.5, 4) == 24)
+
+-- tgamma
+assert(math.approximately(math.tgamma(0.5), 1.7724538509055))
+
+-- lgamma
+assert(math.approximately(math.lgamma(0.5), 0.5723649429247))
+
+-- trunc
+assert(math.trunc(math.lgamma(0.5)) == 0)
+assert(math.trunc(math.tgamma(0.5)) == 1)
+
+-- type
+assert(math.type(0.5) == "float")
+assert(math.type(1) == "integer")
+assert(math.type("1") == nil)
+
+-- hypot
+assert(math.hypot(3,4) == 5)
+
+-- logb
+assert(math.logb(10) == 3)
+assert(math.logb(1024) == 10)
+
+-- ilogb
+assert(math.ilogb(10) == 3)
+
+-- log1p
+assert(math.approximately(math.log1p(1), 0.693147))
+
+-- log2
+assert(math.log2(1024) == 10)
+
+-- cbrt
+assert(math.cbrt(1000) == 10)
+assert(math.cbrt(8) == 2)
+assert(math.cbrt(27) == 3)
+
+-- root
+assert(math.root(10000, 4) == 10)
+assert(math.root(16, 4) == 2)
+assert(math.root(100000, 5) == 10)
+assert(math.root(32, 5) == 2)
+
+-- fma
+assert(math.fma(10, 20, 30) == 230)
+
+-- fdim
+assert(math.fdim(2, 1) == 1);
+assert(math.fdim(1, 2) == 0);
+assert(math.fdim(-2, -1) == 0);
+assert(math.fdim(-1, -2) == 1);
+
+-- erf and erfc
+assert(math.approximately(math.erf(1), 0.84270079294971));
+assert(math.approximately(math.erfc(1), 0.15729920705029));
+
+-- copysign
+assert(math.copysign( 10,-1) == -10)
+assert(math.copysign(-10,-1) == -10)
+assert(math.copysign(-10, 1) == 10)
+
+-- fade
+assert(math.fade(1) == 1)
+assert(math.fade(2) == 32)
+assert(math.fade(3) == 513)
+
+-- grad
+assert(math.grad(3,3,3,3) == -6)
+assert(math.grad(6,3,3,3) == 0)
+assert(math.grad(6,3,3,6) == -3)
+
+-- lerp
+assert(math.lerp(0.5, 1, 2) == 1.5)
+assert(math.lerp(0.5, 10, 90) == 50)
 
 -- most of the tests above go through fastcall path
 -- to make sure the basic implementations are also correct we test these functions with string->number coercions

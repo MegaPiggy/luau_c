@@ -59,6 +59,7 @@ static const std::string kNames[] = {
     "difftime",
     "eps",
     "epsilon",
+    "epsilonf",
     "erf",
     "erfc",
     "error",

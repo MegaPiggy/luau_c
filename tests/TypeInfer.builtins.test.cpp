@@ -44,6 +44,46 @@ TEST_CASE_FIXTURE(Fixture, "math_things_are_defined")
         local a29 = math.huge
         local a30 = math.randomseed
         local a31 = math.random
+        local a32 = math.epsilon
+        local a33 = math.epsilonf
+        local a34 = math.nan
+        local a35 = math.maxinteger
+        local a36 = math.mininteger
+        local a37 = math.approximately
+        local a38 = math.cbrt
+        local a39 = math.classify
+        local a40 = math.copysign
+        local a41 = math.eps
+        local a42 = math.erf
+        local a43 = math.erfc
+        local a44 = math.fade
+        local a45 = math.fdim
+        local a46 = math.fma
+        local a47 = math.grad
+        local a48 = math.hypot
+        local a49 = math.ilogb
+        local a50 = math.ult
+        local a51 = math.isinf
+        local a52 = math.isfinite
+        local a53 = math.isnormal
+        local a54 = math.isnan
+        local a55 = math.isunordered
+        local a56 = math.lerp
+        local a57 = math.lgamma
+        local a58 = math.log1p
+        local a59 = math.logb
+        local a60 = math.log2
+        local a61 = math.nexttoward
+        local a62 = math.remainder
+        local a63 = math.remquo
+        local a64 = math.rep
+        local a65 = math.root
+        local a66 = math.scalbn
+        local a67 = math.signbit
+        local a68 = math.tgamma
+        local a69 = math.tointeger
+        local a70 = math.trunc
+        local a71 = math.type
     )");
 
     LUAU_REQUIRE_NO_ERRORS(result);
@@ -200,6 +240,7 @@ TEST_CASE_FIXTURE(Fixture, "lua_51_exported_globals_all_exist")
         local v_string_format = string.format
         local v_string_gsub = string.gsub
         local v_string_lower = string.lower
+        local v_string_trim = string.trim
 
         local v_xpcall = xpcall
 
@@ -284,6 +325,47 @@ TEST_CASE_FIXTURE(Fixture, "lua_51_exported_globals_all_exist")
         local v_math_sin = math.sin
         local v_math_atan = math.atan
 
+        local v_math_epsilon = math.epsilon
+        local v_math_epsilonf = math.epsilonf
+        local v_math_nan = math.nan
+        local v_math_maxinteger = math.maxinteger
+        local v_math_mininteger = math.mininteger
+        local v_math_approximately = math.approximately
+        local v_math_cbrt = math.cbrt
+        local v_math_classify = math.classify
+        local v_math_copysign = math.copysign
+        local v_math_eps = math.eps
+        local v_math_erf = math.erf
+        local v_math_erfc = math.erfc
+        local v_math_fade = math.fade
+        local v_math_fdim = math.fdim
+        local v_math_fma = math.fma
+        local v_math_grad = math.grad
+        local v_math_hypot = math.hypot
+        local v_math_ilogb = math.ilogb
+        local v_math_isinf = math.isinf
+        local v_math_isfinite = math.isfinite
+        local v_math_isnormal = math.isnormal
+        local v_math_isnan = math.isnan
+        local v_math_isunordered = math.isunordered
+        local v_math_lerp = math.lerp
+        local v_math_lgamma = math.lgamma
+        local v_math_log1p = math.log1p
+        local v_math_logb = math.logb
+        local v_math_log2 = math.log2
+        local v_math_nexttoward = math.nexttoward
+        local v_math_remainder = math.remainder
+        local v_math_remquo = math.remquo
+        local v_math_rep = math.rep
+        local v_math_root = math.root
+        local v_math_scalbn = math.scalbn
+        local v_math_signbit = math.signbit
+        local v_math_tgamma = math.tgamma
+        local v_math_tointeger = math.tointeger
+        local v_math_trunc = math.trunc
+        local v_math_type = math.type
+        local v_math_ult = math.ult
+
         --local v_debug_getupvalue = debug.getupvalue
         --local v_debug_debug = debug.debug
         --local v_debug_sethook = debug.sethook
@@ -310,6 +392,8 @@ TEST_CASE_FIXTURE(Fixture, "lua_51_exported_globals_all_exist")
         local v_table_concat = table.concat
         local v_table_sort = table.sort
         local v_table_remove = table.remove
+        local v_table_isempty = table.isempty
+        local v_table_first = table.first
 
         local v_newproxy = newproxy
         local v_type = type
@@ -758,6 +842,7 @@ TEST_CASE_FIXTURE(Fixture, "string_lib_self_noself")
         local a8 = string.sub("abcd", 1, 2)
         local a9 = string.split("a,b,c", ",")
         local a0 = string.packsize("ff")
+        local b1 = string.trim(" abc ")
     )");
 
     LUAU_REQUIRE_NO_ERRORS(result);

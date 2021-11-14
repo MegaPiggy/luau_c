@@ -62,6 +62,48 @@ declare math: {
     clamp: (number, number, number) -> number,
     noise: (number, number?, number?) -> number,
     round: (number) -> number,
+
+    epsilon: number,
+    epsilonf: number,
+    nan: number,
+    maxinteger: number,
+    mininteger: number,
+
+    approximately: (number) -> boolean,
+    cbrt: (number) -> number,
+    classify: (number) -> string,
+    copysign: (number, number) -> number,
+    eps: (number, number, number) -> number,
+    erf: (number) -> number,
+    erfc: (number) -> number,
+    fade: (number) -> number,
+    fdim: (number, number) -> number,
+    fma: (number, number, number) -> number,
+    grad: (number, number, number, number) -> number,
+    hypot: (number, number) -> number,
+    ilogb: (number) -> number,
+    isinf: (number) -> boolean,
+    isfinite: (number) -> boolean,
+    isnormal: (number) -> boolean,
+    isnan: (number) -> boolean,
+    isunordered: (number) -> boolean,
+    lerp: (number, number, number) -> number,
+    lgamma: (number) -> number,
+    log1p: (number) -> number,
+    logb: (number) -> number,
+    log2: (number) -> number,
+    nexttoward: (number, number) -> number,
+    remainder: (number, number) -> number,
+    remquo: (number, number) -> (number, number),
+    rep: (number, number) -> number,
+    root: (number, number) -> number,
+    scalbn: (number, number) -> number,
+    signbit: (number) -> number,
+    tgamma: (number) -> number,
+    tointeger: <T>(value: T) -> number?,
+    trunc: (number) -> number,
+    type: (number) -> string,
+    ult: (number, number) -> boolean,
 }
 
 type DateTypeArg = {
@@ -176,6 +218,9 @@ declare function gcinfo(): number
 
                 freeze: <K, V>({[K]: V}) -> {[K]: V},
                 isfrozen: <K, V>({[K]: V}) -> boolean,
+
+                isempty: <K, V>({[K]: V}) -> boolean,
+                first: <K, V>({[K]: V}) -> V,
             }
 
             declare debug: {
