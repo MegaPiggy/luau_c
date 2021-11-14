@@ -621,6 +621,7 @@ TypeId SingletonTypes::makeStringMetatable()
                      oneStringPack,
                  })}},
         {"packsize", {makeFunction(*arena, stringType, {}, {}, {}, {}, {numberType})}},
+        {"trim", {makeFunction(*arena, stringType, {}, {}, {}, {}, {optionalString})}},
         {"unpack", {arena->addType(FunctionTypeVar{
                        arena->addTypePack(TypePack{{stringType, stringType, optionalNumber}}),
                        anyTypePack,
