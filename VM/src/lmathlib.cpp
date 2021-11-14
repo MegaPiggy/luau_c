@@ -3,6 +3,7 @@
 #include "lualib.h"
 
 #include "lstate.h"
+#include "lnumutils.h"
 
 #include <math.h>
 #include <time.h>
@@ -132,6 +133,27 @@ static int math_floor(lua_State* L)
     return 1;
 }
 
+static int math_rep(lua_State* L)
+{
+    double t = luaL_checknumber(L, 1);
+    double length = luaL_checknumber(L, 2);
+    lua_pushnumber(L, (t - (floor(t / length) * length)));
+    return 1;
+}
+
+static int math_eps(lua_State* L)
+{
+    double a = luaL_checknumber(L, 1);
+    double b = luaL_checknumber(L, 2);
+    double e = luaL_optnumber(L, 3, 1e-5);
+	double aa = fabs(a) + 1;
+    if (isinf(aa))
+        lua_pushnumber(L, e);
+    else
+        lua_pushnumber(L, e * aa);
+    return 1;
+}
+
 static int math_fmod(lua_State* L)
 {
     lua_pushnumber(L, fmod(luaL_checknumber(L, 1), luaL_checknumber(L, 2)));
@@ -159,11 +181,28 @@ static int math_cbrt(lua_State* L)
     return 1;
 }
 
+static int math_root(lua_State* L)
+{
+    double n = luaL_checknumber(L, 1);
+    double base = luaL_checknumber(L, 2);
+    if (base < 1 || luai_nummod(n, 2) == 0 && n < 0)
+        lua_pushnumber(L, NAN);
+    else
+        lua_pushnumber(L, pow(n, (1 / base)));
+    return 1;
+}
+
+static int math_approximately(lua_State* L)
+{
+	lua_pushboolean(L, (fabs(luaL_checknumber(L, 1) - luaL_checknumber(L, 2)) < 1e-6));
+    return 1;
+}
+
 static int math_ult (lua_State *L) {
-  int a = luaL_checkinteger(L, 1);
-  int b = luaL_checkinteger(L, 2);
-  lua_pushboolean(L, (unsigned int)a < (unsigned int)b);
-  return 1;
+    int a = luaL_checkinteger(L, 1);
+    int b = luaL_checkinteger(L, 2);
+    lua_pushboolean(L, (unsigned int)a < (unsigned int)b);
+    return 1;
 }
 
 static int math_pow(lua_State* L)
@@ -652,6 +691,7 @@ static const luaL_Reg mathlib[] = {
     {"asin", math_asin},
     {"atan2", math_atan2},
     {"atan", math_atan},
+    {"approximately", math_approximately},
     {"cbrt", math_cbrt},
     {"ceil", math_ceil},
     {"classify", math_classify},
@@ -659,6 +699,7 @@ static const luaL_Reg mathlib[] = {
     {"cosh", math_cosh},
     {"cos", math_cos},
     {"deg", math_deg},
+    {"eps", math_eps},
     {"erf", math_erf},
     {"erfc", math_erfc},
     {"exp", math_exp},
@@ -694,6 +735,8 @@ static const luaL_Reg mathlib[] = {
     {"randomseed", math_randomseed},
     {"remainder", math_remainder},
     {"remquo", math_remquo},
+    {"rep", math_rep},
+    {"root", math_root},
     {"scalbn", math_scalbn},
     {"sinh", math_sinh},
     {"sin", math_sin},
