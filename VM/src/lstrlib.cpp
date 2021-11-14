@@ -717,6 +717,13 @@ static int str_match(lua_State* L)
     return str_find_aux(L, 0);
 }
 
+static int str_trim(lua_State* L)
+{
+    lua_settop(L, 1);
+    lua_pushliteral(L, "^%s*(.-)%s*$");
+    return str_find_aux(L, 0);
+}
+
 static int gmatch_aux(lua_State* L)
 {
     MatchState ms;
@@ -1638,6 +1645,7 @@ static const luaL_Reg strlib[] = {
     {"split", str_split},
     {"pack", str_pack},
     {"packsize", str_packsize},
+    {"trim", str_trim},
     {"unpack", str_unpack},
     {NULL, NULL},
 };
