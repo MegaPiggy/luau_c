@@ -507,6 +507,30 @@ static int tisfrozen(lua_State* L)
     return 1;
 }
 
+static int tisempty(lua_State* L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+
+    lua_settop(L, 2); /* create a 2nd argument if there isn't one */
+    if (lua_next(L, 1))
+        lua_pushboolean(L, 0);
+    else
+        lua_pushboolean(L, 1);
+
+    return 1;
+}
+
+static int tfirst(lua_State* L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+
+    lua_settop(L, 2); /* create a 2nd argument if there isn't one */
+    if (!lua_next(L, 1))
+        lua_pushnil(L);
+
+    return 1;
+}
+
 static const luaL_Reg tab_funcs[] = {
     {"concat", tconcat},
     {"foreach", foreach},
@@ -524,6 +548,8 @@ static const luaL_Reg tab_funcs[] = {
     {"clear", tclear},
     {"freeze", tfreeze},
     {"isfrozen", tisfrozen},
+    {"isempty", tisempty},
+    {"first", tfirst},
     {NULL, NULL},
 };
 
