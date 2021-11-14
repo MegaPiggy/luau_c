@@ -3557,6 +3557,8 @@ struct Compiler
                 return LBF_MATH_ABS;
             if (builtin.method == "acos")
                 return LBF_MATH_ACOS;
+            if (builtin.method == "approximately")
+                return LBF_MATH_APPROXIMATELY;
             if (builtin.method == "asin")
                 return LBF_MATH_ASIN;
             if (builtin.method == "atan2")
@@ -3611,6 +3613,76 @@ struct Compiler
                 return LBF_MATH_SIGN;
             if (builtin.method == "round")
                 return LBF_MATH_ROUND;
+            if (builtin.method == "approximately")
+                return LBF_MATH_APPROXIMATELY;
+            if (builtin.method == "cbrt")
+                return LBF_MATH_CBRT;
+            if (builtin.method == "classify")
+                return LBF_MATH_CLASSIFY;
+            if (builtin.method == "copysign")
+                return LBF_MATH_COPYSIGN;
+            if (builtin.method == "eps")
+                return LBF_MATH_EPS;
+            if (builtin.method == "erf")
+                return LBF_MATH_ERF;
+            if (builtin.method == "erfc")
+                return LBF_MATH_ERFC;
+            if (builtin.method == "fade")
+                return LBF_MATH_FADE;
+            if (builtin.method == "fdim")
+                return LBF_MATH_FDIM;
+            if (builtin.method == "fma")
+                return LBF_MATH_FMA;
+            if (builtin.method == "grad")
+                return LBF_MATH_GRAD;
+            if (builtin.method == "hypot")
+                return LBF_MATH_HYPOT;
+            if (builtin.method == "ilogb")
+                return LBF_MATH_ILOGB;
+            if (builtin.method == "isinf")
+                return LBF_MATH_ISINF;
+            if (builtin.method == "isfinite")
+                return LBF_MATH_ISFINITE;
+            if (builtin.method == "isnormal")
+                return LBF_MATH_ISNORMAL;
+            if (builtin.method == "isnan")
+                return LBF_MATH_ISNAN;
+            if (builtin.method == "isunordered")
+                return LBF_MATH_ISUNORDERED;
+            if (builtin.method == "lerp")
+                return LBF_MATH_LERP;
+            if (builtin.method == "lgamma")
+                return LBF_MATH_LGAMMA;
+            if (builtin.method == "log1p")
+                return LBF_MATH_LOG1P;
+            if (builtin.method == "logb")
+                return LBF_MATH_LOGB;
+            if (builtin.method == "log2")
+                return LBF_MATH_LOG2;
+            if (builtin.method == "nexttoward")
+                return LBF_MATH_NEXTTOWARD;
+            if (builtin.method == "remainder")
+                return LBF_MATH_REMAINDER;
+            if (builtin.method == "remquo")
+                return LBF_MATH_REMQUO;
+            if (builtin.method == "rep")
+                return LBF_MATH_REP;
+            if (builtin.method == "root")
+                return LBF_MATH_ROOT;
+            if (builtin.method == "scalbn")
+                return LBF_MATH_SCALBN;
+            if (builtin.method == "signbit")
+                return LBF_MATH_SIGNBIT;
+            if (builtin.method == "tgamma")
+                return LBF_MATH_TGAMMA;
+            if (builtin.method == "tointeger")
+                return LBF_MATH_TOINTEGER;
+            if (builtin.method == "trunc")
+                return LBF_MATH_TRUNC;
+            if (builtin.method == "type")
+                return LBF_MATH_TYPE;
+            if (builtin.method == "ult")
+                return LBF_MATH_ULT;
         }
 
         if (builtin.object == "bit32")
@@ -3655,6 +3727,8 @@ struct Compiler
                 return LBF_STRING_LEN;
             if (builtin.method == "sub")
                 return LBF_STRING_SUB;
+            if (builtin.method == "trim")
+                return LBF_STRING_TRIM;
         }
 
         if (builtin.object == "table")
@@ -3663,6 +3737,10 @@ struct Compiler
                 return LBF_TABLE_INSERT;
             if (builtin.method == "unpack")
                 return LBF_TABLE_UNPACK;
+            if (builtin.method == "isempty")
+                return LBF_TABLE_ISEMPTY;
+            if (builtin.method == "first")
+                return LBF_TABLE_FIRST;
         }
 
         if (options.vectorCtor)
