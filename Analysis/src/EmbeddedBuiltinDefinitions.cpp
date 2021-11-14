@@ -73,7 +73,7 @@ declare math: {
     cbrt: (number) -> number,
     classify: (number) -> string,
     copysign: (number, number) -> number,
-    eps: (number, number, number) -> number,
+    eps: (number, number, number?) -> number,
     erf: (number) -> number,
     erfc: (number) -> number,
     fade: (number) -> number,
