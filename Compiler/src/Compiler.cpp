@@ -3557,8 +3557,6 @@ struct Compiler
                 return LBF_MATH_ABS;
             if (builtin.method == "acos")
                 return LBF_MATH_ACOS;
-            if (builtin.method == "approximately")
-                return LBF_MATH_APPROXIMATELY;
             if (builtin.method == "asin")
                 return LBF_MATH_ASIN;
             if (builtin.method == "atan2")
@@ -3627,12 +3625,28 @@ struct Compiler
                 return LBF_MATH_ERF;
             if (builtin.method == "erfc")
                 return LBF_MATH_ERFC;
+            if (builtin.method == "exp2")
+                return LBF_MATH_EXP2;
+            if (builtin.method == "expm1")
+                return LBF_MATH_EXPM1;
             if (builtin.method == "fade")
                 return LBF_MATH_FADE;
             if (builtin.method == "fdim")
                 return LBF_MATH_FDIM;
             if (builtin.method == "fma")
                 return LBF_MATH_FMA;
+            if (builtin.method == "fuzzyeq")
+                return LBF_MATH_FUZZYEQ;
+            if (builtin.method == "fuzzyne")
+                return LBF_MATH_FUZZYNE;
+            if (builtin.method == "fuzzygt")
+                return LBF_MATH_FUZZYGT;
+            if (builtin.method == "fuzzyge")
+                return LBF_MATH_FUZZYGE;
+            if (builtin.method == "fuzzylt")
+                return LBF_MATH_FUZZYLT;
+            if (builtin.method == "fuzzyle")
+                return LBF_MATH_FUZZYLE;
             if (builtin.method == "grad")
                 return LBF_MATH_GRAD;
             if (builtin.method == "hypot")

@@ -17,7 +17,13 @@
 #define EPSILON (4.94065645841247E-324)
 
 #undef EPSILONF
-#define EPSILONF (1.401298E-45F)
+#define EPSILONF (1.401298E-45)
+
+#undef FUZZY_EPSILON
+#define FUZZY_EPSILON (1e-30)
+
+#undef FUZZY_EPSILONF
+#define FUZZY_EPSILONF (1e-6)
 
 #undef PI
 #define PI (3.14159265358979323846)
@@ -141,16 +147,75 @@ static int math_rep(lua_State* L)
     return 1;
 }
 
+static double eps(double a, double b, double e)
+{
+	double aa = fabs(a) + 1;
+    if (isinf(aa))
+        return e;
+    else
+        return e * aa;
+}
+
 static int math_eps(lua_State* L)
 {
     double a = luaL_checknumber(L, 1);
     double b = luaL_checknumber(L, 2);
-    double e = luaL_optnumber(L, 3, 1e-5);
-	double aa = fabs(a) + 1;
-    if (isinf(aa))
-        lua_pushnumber(L, e);
-    else
-        lua_pushnumber(L, e * aa);
+    double e = luaL_optnumber(L, 3, FUZZY_EPSILONF);
+    lua_pushnumber(L, eps(a, b, e));
+    return 1;
+}
+
+static int math_fuzzyEq(lua_State* L)
+{
+    double a = luaL_checknumber(L, 1);
+    double b = luaL_checknumber(L, 2);
+    double e = luaL_optnumber(L, 3, FUZZY_EPSILONF);
+    lua_pushboolean(L, (a == b || fabs(a - b) <= eps(a, b, e)));
+    return 1;
+}
+
+static int math_fuzzyNe(lua_State* L)
+{
+    double a = luaL_checknumber(L, 1);
+    double b = luaL_checknumber(L, 2);
+    double e = luaL_optnumber(L, 3, FUZZY_EPSILONF);
+    lua_pushboolean(L, (a == b || fabs(a - b) <= eps(a, b, e)) == 0);
+    return 1;
+}
+ 
+static int math_fuzzyGt(lua_State* L)
+{
+    double a = luaL_checknumber(L, 1);
+    double b = luaL_checknumber(L, 2);
+    double e = luaL_optnumber(L, 3, FUZZY_EPSILONF);
+    lua_pushboolean(L, (a > b + eps(a, b, e)));
+    return 1;
+}
+ 
+static int math_fuzzyGe(lua_State* L)
+{
+    double a = luaL_checknumber(L, 1);
+    double b = luaL_checknumber(L, 2);
+    double e = luaL_optnumber(L, 3, FUZZY_EPSILONF);
+    lua_pushboolean(L, (a > b - eps(a, b, e)));
+    return 1;
+}
+ 
+static int math_fuzzyLt(lua_State* L)
+{
+    double a = luaL_checknumber(L, 1);
+    double b = luaL_checknumber(L, 2);
+    double e = luaL_optnumber(L, 3, FUZZY_EPSILONF);
+    lua_pushboolean(L, (a < b - eps(a, b, e)));
+    return 1;
+}
+ 
+static int math_fuzzyLe(lua_State* L)
+{
+    double a = luaL_checknumber(L, 1);
+    double b = luaL_checknumber(L, 2);
+    double e = luaL_optnumber(L, 3, FUZZY_EPSILONF);
+    lua_pushboolean(L, (a < b + eps(a, b, e)));
     return 1;
 }
 
@@ -194,7 +259,7 @@ static int math_root(lua_State* L)
 
 static int math_approximately(lua_State* L)
 {
-	lua_pushboolean(L, (fabs(luaL_checknumber(L, 1) - luaL_checknumber(L, 2)) < 1e-6));
+	lua_pushboolean(L, (fabs(luaL_checknumber(L, 1) - luaL_checknumber(L, 2)) < FUZZY_EPSILONF));
     return 1;
 }
 
@@ -252,6 +317,18 @@ static int math_log2(lua_State* L)
 static int math_exp(lua_State* L)
 {
     lua_pushnumber(L, exp(luaL_checknumber(L, 1)));
+    return 1;
+}
+
+static int math_exp2(lua_State* L)
+{
+    lua_pushnumber(L, exp2(luaL_checknumber(L, 1)));
+    return 1;
+}
+
+static int math_expm1(lua_State* L)
+{
+    lua_pushnumber(L, expm1(luaL_checknumber(L, 1)));
     return 1;
 }
 
@@ -703,11 +780,19 @@ static const luaL_Reg mathlib[] = {
     {"erf", math_erf},
     {"erfc", math_erfc},
     {"exp", math_exp},
+    {"exp2", math_exp2},
+    {"expm1", math_expm1},
     {"fade", math_fade},
     {"fdim", math_fdim},
     {"floor", math_floor},
     {"fma", math_fma},
     {"fmod", math_fmod},
+    {"fuzzyeq", math_fuzzyEq},
+    {"fuzzyge", math_fuzzyGe},
+    {"fuzzygt", math_fuzzyGt},
+    {"fuzzyle", math_fuzzyLe},
+    {"fuzzylt", math_fuzzyLt},
+    {"fuzzyne", math_fuzzyNe},
     {"frexp", math_frexp},
     {"grad", math_grad},
     {"hypot", math_hypot},
@@ -776,6 +861,10 @@ LUALIB_API int luaopen_math(lua_State* L)
     lua_setfield(L, -2, "epsilon");
     lua_pushnumber(L, EPSILONF);
     lua_setfield(L, -2, "epsilonf");
+    lua_pushnumber(L, FUZZY_EPSILON);
+    lua_setfield(L, -2, "fuzzyepsilon");
+    lua_pushnumber(L, FUZZY_EPSILONF);
+    lua_setfield(L, -2, "fuzzyepsilonf");
     lua_pushnumber(L, NAN);
     lua_setfield(L, -2, "nan");
     lua_pushllong(L, LUA_MAXINTEGER);
