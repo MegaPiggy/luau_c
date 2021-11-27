@@ -34,6 +34,8 @@ inline double luai_nummod(double a, double b)
 LUAU_FASTMATH_END
 
 #define luai_num2int(i, d) ((i) = (int)(d))
+#define luai_num2long(i, d) ((i) = (long)(d))
+#define luai_num2llong(i, d) ((i) = (long long)(d))
 
 /* On MSVC in 32-bit, double to unsigned cast compiles into a call to __dtoui3, so we invoke x87->int64 conversion path manually */
 #if defined(_MSC_VER) && defined(_M_IX86)

@@ -360,6 +360,48 @@ int lua_tointegerx(lua_State* L, int idx, int* isnum)
     }
 }
 
+long lua_tolongx(lua_State* L, int idx, int* isnum)
+{
+    TValue n;
+    const TValue* o = index2adr(L, idx);
+    if (tonumber(o, &n))
+    {
+        long res;
+        double num = nvalue(o);
+        luai_num2long(res, num);
+        if (isnum)
+            *isnum = 1;
+        return res;
+    }
+    else
+    {
+        if (isnum)
+            *isnum = 0;
+        return 0;
+    }
+}
+
+long long lua_tollongx(lua_State* L, int idx, int* isnum)
+{
+    TValue n;
+    const TValue* o = index2adr(L, idx);
+    if (tonumber(o, &n))
+    {
+        long long res;
+        double num = nvalue(o);
+        luai_num2llong(res, num);
+        if (isnum)
+            *isnum = 1;
+        return res;
+    }
+    else
+    {
+        if (isnum)
+            *isnum = 0;
+        return 0;
+    }
+}
+
 unsigned lua_tounsignedx(lua_State* L, int idx, int* isnum)
 {
     TValue n;
@@ -543,7 +585,14 @@ void lua_pushinteger(lua_State* L, int n)
     return;
 }
 
-void lua_pushllong(lua_State* L, long long int n)
+void lua_pushlong(lua_State* L, long n)
+{
+    setnvalue(L->top, cast_num(n));
+    api_incr_top(L);
+    return;
+}
+
+void lua_pushllong(lua_State* L, long long n)
 {
     setnvalue(L->top, cast_num(n));
     api_incr_top(L);

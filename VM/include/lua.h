@@ -136,6 +136,8 @@ LUA_API int lua_lessthan(lua_State* L, int idx1, int idx2);
 
 LUA_API double lua_tonumberx(lua_State* L, int idx, int* isnum);
 LUA_API int lua_tointegerx(lua_State* L, int idx, int* isnum);
+LUA_API long lua_tolongx(lua_State* L, int idx, int* isnum);
+LUA_API long long lua_tollongx(lua_State* L, int idx, int* isnum);
 LUA_API unsigned lua_tounsignedx(lua_State* L, int idx, int* isnum);
 LUA_API const float* lua_tovector(lua_State* L, int idx);
 LUA_API int lua_toboolean(lua_State* L, int idx);
@@ -156,7 +158,9 @@ LUA_API const void* lua_topointer(lua_State* L, int idx);
 LUA_API void lua_pushnil(lua_State* L);
 LUA_API void lua_pushnumber(lua_State* L, double n);
 LUA_API void lua_pushinteger(lua_State* L, int n);
-LUA_API void lua_pushllong(lua_State* L, long long int n);
+LUA_API void lua_pushinteger(lua_State* L, int n);
+LUA_API void lua_pushlong(lua_State* L, long n);
+LUA_API void lua_pushllong(lua_State* L, long long n);
 LUA_API void lua_pushunsigned(lua_State* L, unsigned n);
 LUA_API void lua_pushvector(lua_State* L, float x, float y, float z);
 LUA_API void lua_pushlstring(lua_State* L, const char* s, size_t l);
@@ -276,6 +280,8 @@ LUA_API void lua_unref(lua_State* L, int ref);
 */
 #define lua_tonumber(L, i) lua_tonumberx(L, i, NULL)
 #define lua_tointeger(L, i) lua_tointegerx(L, i, NULL)
+#define lua_tolong(L, i) lua_tolongx(L, i, NULL)
+#define lua_tollong(L, i) lua_tollongx(L, i, NULL)
 #define lua_tounsigned(L, i) lua_tounsignedx(L, i, NULL)
 
 #define lua_pop(L, n) lua_settop(L, -(n)-1)
