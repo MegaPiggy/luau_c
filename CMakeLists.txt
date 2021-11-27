@@ -40,6 +40,12 @@ endif()
 
 include(Sources.cmake)
 
+include(FetchContent)
+FetchContent_Declare(cpr GIT_REPOSITORY https://github.com/libcpr/cpr.git GIT_TAG 67e12da316754ff3c6c91b50aafb2658438f3c1e) # the commit hash for 1.7.0
+set(CPR_BUILD_TESTS OFF CACHE INTERNAL "" FORCE)
+FetchContent_MakeAvailable(cpr)
+target_link_libraries(Luau.VM PRIVATE cpr::cpr)
+
 target_compile_features(Luau.Ast PUBLIC cxx_std_17)
 target_include_directories(Luau.Ast PUBLIC Ast/include)
 
