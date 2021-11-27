@@ -205,6 +205,7 @@ declare function gcinfo(): number
                 wrap: <A..., R...>((A...) -> R...) -> any,
                 yield: <A..., R...>(A...) -> R...,
                 isyieldable: () -> boolean,
+                close: (thread) -> (boolean, any?)
             }
 
             declare table: {

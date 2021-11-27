@@ -606,12 +606,21 @@ void lua_pushunsigned(lua_State* L, unsigned u)
     return;
 }
 
-void lua_pushvector(lua_State* L, float x, float y, float z)
+#if LUA_VECTOR_SIZE == 4
+void lua_pushvector(lua_State* L, float x, float y, float z, float w)
 {
-    setvvalue(L->top, x, y, z);
+    setvvalue(L->top, x, y, z, w);
     api_incr_top(L);
     return;
 }
+#else
+void lua_pushvector(lua_State* L, float x, float y, float z)
+{
+    setvvalue(L->top, x, y, z, 0.0f);
+    api_incr_top(L);
+    return;
+}
+#endif
 
 void lua_pushlstring(lua_State* L, const char* s, size_t len)
 {
@@ -649,7 +658,7 @@ const char* lua_pushfstringL(lua_State* L, const char* fmt, ...)
     return ret;
 }
 
-void lua_pushcfunction(lua_State* L, lua_CFunction fn, const char* debugname, int nup, lua_Continuation cont)
+void lua_pushcclosurek(lua_State* L, lua_CFunction fn, const char* debugname, int nup, lua_Continuation cont)
 {
     luaC_checkGC(L);
     luaC_checkthreadsleep(L);
@@ -754,13 +763,13 @@ void lua_createtable(lua_State* L, int narray, int nrec)
     return;
 }
 
-void lua_setreadonly(lua_State* L, int objindex, bool value)
+void lua_setreadonly(lua_State* L, int objindex, int enabled)
 {
     const TValue* o = index2adr(L, objindex);
     api_check(L, ttistable(o));
     Table* t = hvalue(o);
     api_check(L, t != hvalue(registry(L)));
-    t->readonly = value;
+    t->readonly = bool(enabled);
     return;
 }
 
@@ -773,12 +782,12 @@ int lua_getreadonly(lua_State* L, int objindex)
     return res;
 }
 
-void lua_setsafeenv(lua_State* L, int objindex, bool value)
+void lua_setsafeenv(lua_State* L, int objindex, int enabled)
 {
     const TValue* o = index2adr(L, objindex);
     api_check(L, ttistable(o));
     Table* t = hvalue(o);
-    t->safeenv = value;
+    t->safeenv = bool(enabled);
     return;
 }
 
