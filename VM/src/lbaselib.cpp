@@ -412,6 +412,24 @@ static int luaB_newproxy(lua_State* L)
     return 1;
 }
 
+#include <chrono>
+#include <thread>
+static int luaB_wait(lua_State* L)
+{
+    using namespace std::this_thread;     // sleep_for, sleep_until
+    using namespace std::chrono_literals; // ns, us, ms, s, h, etc.
+    
+    double seconds = luaL_checknumber(L, 1);
+    if (seconds <= 0)
+        luaL_argerror(L, 1, "must be above zero");
+
+    long long nanoseconds = (long long)(seconds * 1000000000); 
+
+    sleep_for(std::chrono::nanoseconds(nanoseconds));
+
+    return 0;
+}
+
 static const luaL_Reg base_funcs[] = {
     {"assert", luaB_assert},
     {"error", luaB_error},
@@ -431,6 +449,7 @@ static const luaL_Reg base_funcs[] = {
     {"tostring", luaB_tostring},
     {"type", luaB_type},
     {"typeof", luaB_typeof},
+    {"wait", luaB_wait},
     {NULL, NULL},
 };
 
