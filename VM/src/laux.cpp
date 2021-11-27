@@ -113,6 +113,11 @@ LUALIB_API int luaL_newmetatable(lua_State* L, const char* tname)
     return 1;
 }
 
+LUALIB_API void luaL_setmetatable (lua_State *L, const char *tname) {
+  luaL_getmetatable(L, tname);
+  lua_setmetatable(L, -2);
+}
+
 LUALIB_API void* luaL_checkudata(lua_State* L, int ud, const char* tname)
 {
     void* p = lua_touserdata(L, ud);
