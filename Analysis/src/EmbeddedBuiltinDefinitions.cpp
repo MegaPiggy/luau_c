@@ -196,6 +196,8 @@ declare function gcinfo(): number
             -- FIXME: change this to something Luau can understand how to reject `setmetatable(newproxy(false or true), {})`.
             declare function newproxy(mt: boolean?): {}
 
+            declare function wait(number) -> (),
+
             declare coroutine: {
                 create: <A..., R...>((A...) -> R...) -> thread,
                 resume: <A..., R...>(thread, A...) -> (boolean, R...),
@@ -250,6 +252,56 @@ declare function gcinfo(): number
                 nfdnormalize: (string) -> string,
                 nfcnormalize: (string) -> string,
                 graphemes: (string, number?, number?) -> (() -> (number, number)),
+            }
+
+type CprCustomOptions = {
+    followRedirects: number?,
+    maxRedirects: number?,
+    timeout: number?,
+    auth: table?,
+    digest: table?,
+    ntlm: table?,
+    bearer: string?,
+    payload: table?,
+    multipart: table?,
+    parameters: table?,
+}
+
+type CprResponseStatus = {
+    line: string,
+    code: number,
+}
+
+type CprResponseError = {
+    message: string,
+    code: string,
+}
+
+type CprResponse = {
+    elapsed: number,
+    text: string,
+    reason: string,
+    downloaded: number,
+    uploaded: number,
+    redirects: number,
+    status: CprResponseStatus,
+    error: CprResponseError,
+    url: string,
+    rawHeader: string,
+    header: table,
+    cookies: table,
+    certInfo: table,
+}
+
+            declare cpr: {
+                request: (string, string, table?, string?, CprCustomOptions?) -> CprResponse,
+                get: (string, table?, string?, CprCustomOptions?) -> CprResponse,
+                post: (string, table?, string?, CprCustomOptions?) -> CprResponse,
+                patch: (string, table?, string?, CprCustomOptions?) -> CprResponse,
+                put: (string, table?, string?, CprCustomOptions?) -> CprResponse,
+                delete: (string, table?, string?, CprCustomOptions?) -> CprResponse,
+                options: (string, table?, string?, CprCustomOptions?) -> CprResponse,
+                head: (string, table?, string?, CprCustomOptions?) -> CprResponse,
             }
 
             -- Cannot use `typeof` here because it will produce a polytype when we expect a monotype.

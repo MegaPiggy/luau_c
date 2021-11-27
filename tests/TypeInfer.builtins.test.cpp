@@ -262,6 +262,7 @@ TEST_CASE_FIXTURE(Fixture, "lua_51_exported_globals_all_exist")
 
         local v_tostring = tostring
         local v_print = print
+        local v_wait = wait
 
         --local v_os_exit = os.exit
         --local v_os_setlocale = os.setlocale
@@ -424,6 +425,15 @@ TEST_CASE_FIXTURE(Fixture, "lua_51_exported_globals_all_exist")
         local v_coroutine_wrap = coroutine.wrap
         local v_coroutine_create = coroutine.create
         local v_coroutine_running = coroutine.running
+
+        local v_cpr_request = cpr.request
+        local v_cpr_get = cpr.get
+        local v_cpr_post = cpr.post
+        local v_cpr_patch = cpr.patch
+        local v_cpr_put = cpr.put
+        local v_cpr_delete = cpr.delete
+        local v_cpr_options = cpr.options
+        local v_cpr_head = cpr.head
 
         local v_select = select
         local v_gcinfo = gcinfo
@@ -939,6 +949,22 @@ TEST_CASE_FIXTURE(Fixture, "dont_add_definitions_to_persistent_types")
     REQUIRE(gType);
     REQUIRE(!gType->persistent);
     REQUIRE(gtv->definition);
+}
+
+TEST_CASE_FIXTURE(Fixture, "cpr_things_are_defined")
+{
+    CheckResult result = check(R"(
+        local a00 = cpr.request
+        local a01 = cpr.get
+        local a02 = cpr.post
+        local a03 = cpr.patch
+        local a04 = cpr.put
+        local a05 = cpr.delete
+        local a06 = cpr.options
+        local a07 = cpr.head
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
 }
 
 TEST_SUITE_END();

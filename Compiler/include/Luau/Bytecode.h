@@ -523,6 +523,19 @@ enum LuauBuiltinFunction
 
     // string.
     LBF_STRING_TRIM,
+
+    // wait()
+    LBF_WAIT,
+
+    // cpr
+    LBF_CPR_REQUEST,
+    LBF_CPR_GET,
+    LBF_CPR_POST,
+    LBF_CPR_PATCH,
+    LBF_CPR_PUT,
+    LBF_CPR_DELETE,
+    LBF_CPR_OPTIONS,
+    LBF_CPR_HEAD,
 };
 
 // Capture type, used in LOP_CAPTURE

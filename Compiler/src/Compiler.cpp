@@ -3532,6 +3532,9 @@ struct Compiler
         if (builtin.isGlobal("unpack"))
             return LBF_TABLE_UNPACK;
 
+        if (builtin.isGlobal("wait"))
+            return LBF_WAIT;
+
         if (builtin.object == "math")
         {
             if (builtin.method == "abs")
@@ -3736,6 +3739,26 @@ struct Compiler
                 return LBF_TABLE_ISEMPTY;
             if (builtin.method == "first")
                 return LBF_TABLE_FIRST;
+        }
+
+        if (builtin.object == "cpr")
+        {
+            if (builtin.method == "request")
+                return LBF_CPR_REQUEST;
+            if (builtin.method == "get")
+                return LBF_CPR_GET;
+            if (builtin.method == "post")
+                return LBF_CPR_POST;
+            if (builtin.method == "patch")
+                return LBF_CPR_PATCH;
+            if (builtin.method == "put")
+                return LBF_CPR_PUT;
+            if (builtin.method == "delete")
+                return LBF_CPR_DELETE;
+            if (builtin.method == "options")
+                return LBF_CPR_OPTIONS;
+            if (builtin.method == "head")
+                return LBF_CPR_HEAD;
         }
 
         if (options.vectorCtor)
