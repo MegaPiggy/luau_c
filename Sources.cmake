@@ -120,6 +120,7 @@ target_sources(Luau.VM PRIVATE
     VM/src/lfunc.cpp
     VM/src/lgc.cpp
     VM/src/linit.cpp
+    VM/src/json.cpp
     VM/src/lmathlib.cpp
     VM/src/lmem.cpp
     VM/src/lobject.cpp

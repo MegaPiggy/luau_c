@@ -18,3 +18,5 @@ assert(cpr.get("http://www.httpbin.org/digest-auth/auth/user/pass", nil, nil, {d
 assert(cpr.get("http://www.httpbin.org/digest-auth/auth/user/pass").status.code == 401)
 assert(cpr.get("http://www.httpbin.org/bearer", nil, nil, {bearer = "ACCESS_TOKEN"}).status.code == 200)
 assert(cpr.get("http://www.httpbin.org/bearer").status.code == 401)
+
+assert(json.decode(cpr.get("http://www.httpbin.org/get").text).url == "http://www.httpbin.org/get")

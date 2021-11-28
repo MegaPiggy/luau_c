@@ -967,4 +967,14 @@ TEST_CASE_FIXTURE(Fixture, "cpr_things_are_defined")
     LUAU_REQUIRE_NO_ERRORS(result);
 }
 
+TEST_CASE_FIXTURE(Fixture, "json_things_are_defined")
+{
+    CheckResult result = check(R"(
+        local a00 = json.encode
+        local a01 = json.decode
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+}
+
 TEST_SUITE_END();

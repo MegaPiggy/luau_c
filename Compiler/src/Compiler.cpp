@@ -3761,6 +3761,14 @@ struct Compiler
                 return LBF_CPR_HEAD;
         }
 
+        if (builtin.object == "json")
+        {
+            if (builtin.method == "encode")
+                return LBF_JSON_ENCODE;
+            if (builtin.method == "decode")
+                return LBF_JSON_DECODE;
+        }
+
         if (options.vectorCtor)
         {
             if (options.vectorLib)

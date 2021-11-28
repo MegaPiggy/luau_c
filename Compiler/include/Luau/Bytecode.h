@@ -536,6 +536,10 @@ enum LuauBuiltinFunction
     LBF_CPR_DELETE,
     LBF_CPR_OPTIONS,
     LBF_CPR_HEAD,
+
+    // json
+    LBF_JSON_ENCODE,
+    LBF_JSON_DECODE,
 };
 
 // Capture type, used in LOP_CAPTURE

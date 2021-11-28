@@ -304,6 +304,11 @@ type CprResponse = {
                 head: (string, {}?, string?, CprCustomOptions?) -> CprResponse,
             }
 
+            declare json: {
+                encode: (any) -> string,
+                decode: (string) -> any,
+            }
+
             -- Cannot use `typeof` here because it will produce a polytype when we expect a monotype.
             declare function unpack<V>(tab: {V}, i: number?, j: number?): ...V
 
