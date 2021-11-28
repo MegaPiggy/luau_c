@@ -4,7 +4,7 @@
 #include "lapi.h"
 #include "lualib.h"
 
-LUALIB_API int lc_register(lua_State* L, const char* libname, int size = 1)
+LUALIB_API int lc_register(lua_State* L, const char* libname, int size)
 {
     if (libname)
     {
