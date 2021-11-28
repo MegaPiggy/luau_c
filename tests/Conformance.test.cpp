@@ -341,6 +341,11 @@ TEST_CASE("Coroutine")
     runConformance("coroutine.lua");
 }
 
+TEST_CASE("CPR")
+{
+    runConformance("cpr.lua");
+}
+
 static int cxxthrow(lua_State* L)
 {
 #if LUA_USE_LONGJMP
