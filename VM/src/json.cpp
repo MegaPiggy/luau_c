@@ -1,39 +1,11 @@
 #include "lua.h"
 #include "lapi.h"
 #include "lualib.h"
+#include "lc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-/* pushes new closure table onto the stack, using closure table at
- * given index as its parent */
-static void lc_newclosuretable(lua_State * L, int idx)
-{
-  lua_newtable(L);
-  lua_pushvalue(L,idx);
-  lua_rawseti(L,-2,0);
-}
-
-/* gets upvalue with ID varid by consulting upvalue table at index
- * tidx for the upvalue table at given nesting level. */
-static void lc_getupvalue(lua_State * L, int tidx, int level, int varid)
-{
-  if (level == 0) {
-    lua_rawgeti(L,tidx,varid);
-  }
-  else {
-    lua_pushvalue(L,tidx);
-    while (--level >= 0) {
-      lua_rawgeti(L,tidx,0); /* 0 links to parent table */
-      lua_remove(L,-2);
-      tidx = -1;
-    }
-    lua_rawgeti(L,-1,varid);
-    lua_remove(L,-2);
-  }
-}
-
 
 /* name: escape_char
  * function(c) */
@@ -76,24 +48,6 @@ static int lcf1_encode_nil (lua_State * L) {
   /* return "null" */
   lua_pushliteral(L,"null");
   return 1;
-}
-
-
-/* __add metamethod handler. */
-static void lc_add(lua_State * L, int idxa, int idxb) {
-  if (lua_isnumber(L,idxa) && lua_isnumber(L,idxb)) {
-    lua_pushnumber(L,lua_tonumber(L,idxa) + lua_tonumber(L,idxb));
-  }
-  else {
-    if (luaL_getmetafield(L,idxa,"__add")||luaL_getmetafield(L,idxb,"__add")) {
-      lua_pushvalue(L,idxa < 0 && idxa > LUA_REGISTRYINDEX ? idxa-1 : idxa);
-      lua_pushvalue(L,idxb < 0 && idxb > LUA_REGISTRYINDEX ? idxb-2 : idxb);
-      lua_call(L,2,1);
-    }
-    else {
-      luaL_error(L, "attempt to perform arithmetic");
-    }
-  }
 }
 
 
@@ -429,54 +383,6 @@ static int lcf1_encode_string (lua_State * L) {
 }
 
 
-/* __le metamethod handler. */
-static int lc_le(lua_State * L, int idxa, int idxb) {
-  if (lua_type(L,idxa) == LUA_TNUMBER && lua_type(L,idxb) == LUA_TNUMBER) {
-    return lua_tonumber(L,idxa) <= lua_tonumber(L,idxb);
-  }
-  else if (lua_type(L,idxa) == LUA_TSTRING && lua_type(L,idxb) == LUA_TSTRING) {
-    /* result similar to lvm.c l_strcmp */
-    return lua_lessthan(L,idxa,idxb) || lua_rawequal(L,idxa,idxb);
-  }
-  else if (luaL_getmetafield(L,idxa,"__le")||luaL_getmetafield(L,idxb,"__le")) {
-    lua_pushvalue(L,idxa < 0 && idxa > LUA_REGISTRYINDEX ? idxa-1 : idxa);
-    lua_pushvalue(L,idxb < 0 && idxb > LUA_REGISTRYINDEX ? idxb-2 : idxb);
-    lua_call(L,2,1);
-    const int result = lua_toboolean(L,-1);
-    lua_pop(L,1);
-    return result;
-  }
-  else if (luaL_getmetafield(L,idxa,"__lt")||luaL_getmetafield(L,idxb,"__lt")) {
-    lua_pushvalue(L,idxb < 0 && idxb > LUA_REGISTRYINDEX ? idxb-1 : idxb);
-    lua_pushvalue(L,idxa < 0 && idxa > LUA_REGISTRYINDEX ? idxa-2 : idxa);
-    lua_call(L,2,1);
-    const int result = ! lua_toboolean(L,-1);
-    lua_pop(L,1);
-    return result;
-  }
-  else {
-    luaL_error(L, "attempt to compare");
-  }
-}
-
-
-/* __unm metamethod handler. */
-static void lc_unm(lua_State * L, int idxa) {
-  if (lua_isnumber(L,idxa)) {
-    lua_pushnumber(L,- lua_tonumber(L, idxa));
-  }
-  else {
-    if (luaL_getmetafield(L,idxa,"__unm")) {
-      lua_pushvalue(L,idxa < 0 && idxa > LUA_REGISTRYINDEX ? idxa-1 : idxa);
-      lua_call(L,1,1);
-    }
-    else {
-      luaL_error(L, "attempt to perform arithmetic");
-    }
-  }
-}
-
-
 /* name: encode_number
  * function(val) */
 static int lcf1_encode_number (lua_State * L) {
@@ -730,24 +636,6 @@ static int lcf1_next_char (lua_State * L) {
 }
 
 
-/* __sub metamethod handler. */
-static void lc_sub(lua_State * L, int idxa, int idxb) {
-  if (lua_isnumber(L,idxa) && lua_isnumber(L,idxb)) {
-    lua_pushnumber(L,lua_tonumber(L,idxa) - lua_tonumber(L,idxb));
-  }
-  else {
-    if (luaL_getmetafield(L,idxa,"__sub")||luaL_getmetafield(L,idxb,"__sub")) {
-      lua_pushvalue(L,idxa < 0 && idxa > LUA_REGISTRYINDEX ? idxa-1 : idxa);
-      lua_pushvalue(L,idxb < 0 && idxb > LUA_REGISTRYINDEX ? idxb-2 : idxb);
-      lua_call(L,2,1);
-    }
-    else {
-      luaL_error(L, "attempt to perform arithmetic");
-    }
-  }
-}
-
-
 /* name: decode_error
  * function(str, idx, msg) */
 static int lcf1_decode_error (lua_State * L) {
@@ -833,44 +721,6 @@ static int lcf1_decode_error (lua_State * L) {
   lua_call(L,4,LUA_MULTRET);
   lua_call(L,(lua_gettop(L) - lc66),0);
   return 0;
-}
-
-
-/* __div metamethod handler. */
-static void lc_div(lua_State * L, int idxa, int idxb) {
-  if (lua_isnumber(L,idxa) && lua_isnumber(L,idxb)) {
-    lua_pushnumber(L,lua_tonumber(L,idxa) / lua_tonumber(L,idxb));
-  }
-  else {
-    if (luaL_getmetafield(L,idxa,"__div")||luaL_getmetafield(L,idxb,"__div")) {
-      lua_pushvalue(L,idxa < 0 && idxa > LUA_REGISTRYINDEX ? idxa-1 : idxa);
-      lua_pushvalue(L,idxb < 0 && idxb > LUA_REGISTRYINDEX ? idxb-2 : idxb);
-      lua_call(L,2,1);
-    }
-    else {
-      luaL_error(L, "attempt to perform arithmetic");
-    }
-  }
-}
-
-
-#include <math.h>
-
-/* __mod metamethod handler. */
-static void lc_mod(lua_State * L, int idxa, int idxb) {
-  if (lua_isnumber(L,idxa) && lua_isnumber(L,idxb)) {
-    lua_pushnumber(L,lua_tonumber(L,idxa) - floor(lua_tonumber(L,idxa)/lua_tonumber(L,idxb))*lua_tonumber(L,idxb));
-  }
-  else {
-    if (luaL_getmetafield(L,idxa,"__mod")||luaL_getmetafield(L,idxb,"__mod")) {
-      lua_pushvalue(L,idxa < 0 && idxa > LUA_REGISTRYINDEX ? idxa-1 : idxa);
-      lua_pushvalue(L,idxb < 0 && idxb > LUA_REGISTRYINDEX ? idxb-2 : idxb);
-      lua_call(L,2,1);
-    }
-    else {
-      luaL_error(L, "attempt to perform arithmetic");
-    }
-  }
 }
 
 
@@ -1078,24 +928,6 @@ static int lcf1_codepoint_to_utf8 (lua_State * L) {
   lua_call(L,2,LUA_MULTRET);
   lua_call(L,(lua_gettop(L) - lc84),0);
   return 0;
-}
-
-
-/* __mul metamethod handler. */
-static void lc_mul(lua_State * L, int idxa, int idxb) {
-  if (lua_isnumber(L,idxa) && lua_isnumber(L,idxb)) {
-    lua_pushnumber(L,lua_tonumber(L,idxa) * lua_tonumber(L,idxb));
-  }
-  else {
-    if (luaL_getmetafield(L,idxa,"__mul")||luaL_getmetafield(L,idxb,"__mul")) {
-      lua_pushvalue(L,idxa < 0 && idxa > LUA_REGISTRYINDEX ? idxa-1 : idxa);
-      lua_pushvalue(L,idxb < 0 && idxb > LUA_REGISTRYINDEX ? idxb-2 : idxb);
-      lua_call(L,2,1);
-    }
-    else {
-      luaL_error(L, "attempt to perform arithmetic");
-    }
-  }
 }
 
 
@@ -2081,24 +1913,6 @@ static int lcf1_json_decode (lua_State * L) {
   return 1;
 }
 
-static int lcf_register (lua_State * L) {
-  //lua_createtable(L,0,1);
-  /* check whether lib already exists */
-  luaL_findtable(L, LUA_REGISTRYINDEX, "_LOADED", 1);
-  lua_getfield(L, -1, LUA_JSONLIBNAME); /* get _LOADED["json"] */
-  if (!lua_istable(L, -1))
-  {                  /* not found? */
-    lua_pop(L, 1); /* remove previous result */
-    /* try global variable (and create one if it does not exist) */
-    if (luaL_findtable(L, LUA_GLOBALSINDEX, LUA_JSONLIBNAME, 1) != NULL)
-        luaL_error(L, "name conflict for module '%s'", LUA_JSONLIBNAME);
-    lua_pushvalue(L, -1);
-    lua_setfield(L, -3, LUA_JSONLIBNAME); /* _LOADED["json"] = new table */
-  }
-  lua_remove(L, -2); /* remove _LOADED table */
-  return 1;
-}
-
 /* name: (main)
  * function(...) */
 static int lcf_main (lua_State * L) {
@@ -2131,7 +1945,7 @@ static int lcf_main (lua_State * L) {
    * -- SOFTWARE.
    * --
    * local json = { _version = "0.1.2" } */
-  lcf_register(L);
+  lc_register(L, LUA_JSONLIBNAME, 2);
   
   /* -------------------------------------------------------------------------------
    * -- Encode

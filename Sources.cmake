@@ -112,6 +112,7 @@ target_sources(Luau.VM PRIVATE
     VM/src/lbaselib.cpp
     VM/src/lbitlib.cpp
     VM/src/lbuiltins.cpp
+    VM/src/lc.cpp
     VM/src/lcorolib.cpp
     VM/src/lcprlib.cpp
     VM/src/ldblib.cpp
@@ -139,6 +140,7 @@ target_sources(Luau.VM PRIVATE
     VM/src/lapi.h
     VM/src/lbuiltins.h
     VM/src/lbytecode.h
+    VM/src/lc.h
     VM/src/lcommon.h
     VM/src/ldebug.h
     VM/src/ldo.h
