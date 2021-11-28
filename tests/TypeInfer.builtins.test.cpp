@@ -977,4 +977,14 @@ TEST_CASE_FIXTURE(Fixture, "json_things_are_defined")
     LUAU_REQUIRE_NO_ERRORS(result);
 }
 
+TEST_CASE_FIXTURE(Fixture, "base64_things_are_defined")
+{
+    CheckResult result = check(R"(
+        local a00 = base64.encode
+        local a01 = base64.decode
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+}
+
 TEST_SUITE_END();

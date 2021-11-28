@@ -540,6 +540,10 @@ enum LuauBuiltinFunction
     // json
     LBF_JSON_ENCODE,
     LBF_JSON_DECODE,
+
+    // base64
+    LBF_BASE64_ENCODE,
+    LBF_BASE64_DECODE,
 };
 
 // Capture type, used in LOP_CAPTURE

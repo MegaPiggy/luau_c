@@ -32,6 +32,7 @@ static const std::string kNames[] = {
     "atan",
     "atan2",
     "band",
+    "base64",
     "bit32",
     "bnot",
     "boolean",

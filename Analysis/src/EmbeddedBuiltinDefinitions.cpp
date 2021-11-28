@@ -309,6 +309,11 @@ type CprResponse = {
                 decode: (string) -> any,
             }
 
+            declare base64: {
+                encode: ((string) -> string) & ((number) -> string),
+                decode: (string) -> string,
+            }
+
             -- Cannot use `typeof` here because it will produce a polytype when we expect a monotype.
             declare function unpack<V>(tab: {V}, i: number?, j: number?): ...V
 

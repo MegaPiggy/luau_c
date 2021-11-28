@@ -3769,6 +3769,14 @@ struct Compiler
                 return LBF_JSON_DECODE;
         }
 
+        if (builtin.object == "base64")
+        {
+            if (builtin.method == "encode")
+                return LBF_BASE64_ENCODE;
+            if (builtin.method == "decode")
+                return LBF_BASE64_DECODE;
+        }
+
         if (options.vectorCtor)
         {
             if (options.vectorLib)

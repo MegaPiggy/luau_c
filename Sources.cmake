@@ -110,6 +110,7 @@ target_sources(Luau.VM PRIVATE
     VM/src/lapi.cpp
     VM/src/laux.cpp
     VM/src/lbaselib.cpp
+    VM/src/base64.cpp
     VM/src/lbitlib.cpp
     VM/src/lbuiltins.cpp
     VM/src/lc.cpp

@@ -133,6 +133,9 @@ LUALIB_API int luaopen_cpr(lua_State* L);
 #define LUA_JSONLIBNAME "json"
 LUALIB_API int luaopen_json(lua_State* L);
 
+#define LUA_BASE64LIBNAME "base64"
+LUALIB_API int luaopen_base64(lua_State* L);
+
 /* open all builtin libraries */
 LUALIB_API void luaL_openlibs(lua_State* L);
 
