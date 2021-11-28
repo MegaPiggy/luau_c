@@ -196,7 +196,7 @@ declare function gcinfo(): number
             -- FIXME: change this to something Luau can understand how to reject `setmetatable(newproxy(false or true), {})`.
             declare function newproxy(mt: boolean?): {}
 
-            declare function wait(number) -> (),
+            declare function wait(seconds: number)
 
             declare coroutine: {
                 create: <A..., R...>((A...) -> R...) -> thread,
@@ -258,13 +258,13 @@ type CprCustomOptions = {
     followRedirects: number?,
     maxRedirects: number?,
     timeout: number?,
-    auth: table?,
-    digest: table?,
-    ntlm: table?,
+    auth: {}?,
+    digest: {}?,
+    ntlm: {}?,
     bearer: string?,
-    payload: table?,
-    multipart: table?,
-    parameters: table?,
+    payload: {}?,
+    multipart: {}?,
+    parameters: {}?,
 }
 
 type CprResponseStatus = {
@@ -288,20 +288,20 @@ type CprResponse = {
     error: CprResponseError,
     url: string,
     rawHeader: string,
-    header: table,
-    cookies: table,
-    certInfo: table,
+    header: {},
+    cookies: {},
+    certInfo: {},
 }
 
             declare cpr: {
-                request: (string, string, table?, string?, CprCustomOptions?) -> CprResponse,
-                get: (string, table?, string?, CprCustomOptions?) -> CprResponse,
-                post: (string, table?, string?, CprCustomOptions?) -> CprResponse,
-                patch: (string, table?, string?, CprCustomOptions?) -> CprResponse,
-                put: (string, table?, string?, CprCustomOptions?) -> CprResponse,
-                delete: (string, table?, string?, CprCustomOptions?) -> CprResponse,
-                options: (string, table?, string?, CprCustomOptions?) -> CprResponse,
-                head: (string, table?, string?, CprCustomOptions?) -> CprResponse,
+                request: (string, string, {}?, string?, CprCustomOptions?) -> CprResponse,
+                get: (string, {}?, string?, CprCustomOptions?) -> CprResponse,
+                post: (string, {}?, string?, CprCustomOptions?) -> CprResponse,
+                patch: (string, {}?, string?, CprCustomOptions?) -> CprResponse,
+                put: (string, {}?, string?, CprCustomOptions?) -> CprResponse,
+                delete: (string, {}?, string?, CprCustomOptions?) -> CprResponse,
+                options: (string, {}?, string?, CprCustomOptions?) -> CprResponse,
+                head: (string, {}?, string?, CprCustomOptions?) -> CprResponse,
             }
 
             -- Cannot use `typeof` here because it will produce a polytype when we expect a monotype.
