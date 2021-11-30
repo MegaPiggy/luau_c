@@ -618,6 +618,7 @@ TypeId SingletonTypes::makeStringMetatable()
         {"format", {formatFn}}, // FIXME
         {"gmatch", {gmatchFunc}},
         {"gsub", {gsubFunc}},
+        {"index", {makeFunction(*arena, stringType, {}, {}, {numberType}, {}, {optionalString})}},
         {"len", {makeFunction(*arena, stringType, {}, {}, {}, {}, {numberType})}},
         {"lower", {stringToStringType}},
         {"match", {makeFunction(*arena, stringType, {}, {}, {stringType, optionalNumber}, {}, {optionalString})}},

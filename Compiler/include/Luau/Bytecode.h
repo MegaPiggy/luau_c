@@ -544,6 +544,9 @@ enum LuauBuiltinFunction
     // base64
     LBF_BASE64_ENCODE,
     LBF_BASE64_DECODE,
+
+    // string.
+    LBF_STRING_INDEX,
 };
 
 // Capture type, used in LOP_CAPTURE

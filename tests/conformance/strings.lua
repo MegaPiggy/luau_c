@@ -22,8 +22,13 @@ assert(not ('\0\0b' < '\0\0a\0'))
 print('+')
 
 --remove whitespace
-assert(string.trim(" hello ") == "hello"))
-assert(string.trim(" . hello ") == ". hello"))
+assert(string.trim(" hello ") == "hello")
+assert(string.trim(" . hello ") == ". hello")
+
+--get character at index from string
+assert(string.index("abc", 1) == "a")
+assert(string.index("abc", 2) == "b")
+assert(string.index("abc", 3) == "c")
 
 assert(string.sub("123456789",2,4) == "234")
 assert(string.sub("123456789",7) == "789")

@@ -3727,6 +3727,8 @@ struct Compiler
                 return LBF_STRING_SUB;
             if (builtin.method == "trim")
                 return LBF_STRING_TRIM;
+            if (builtin.method == "index")
+                return LBF_STRING_INDEX;
         }
 
         if (builtin.object == "table")

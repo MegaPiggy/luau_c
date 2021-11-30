@@ -104,6 +104,7 @@ static const std::string kNames[] = {
     "huge",
     "hypot",
     "ilogb",
+    "index",
     "insert",
     "ipairs",
     "isempty",

@@ -1626,6 +1626,21 @@ static int str_unpack(lua_State* L)
     return n + 1;
 }
 
+static int str_index(lua_State* L)
+{
+    size_t l;
+    const char* s = luaL_checklstring(L, 1, &l);
+    int i = luaL_checkinteger(L, 2);
+    int posi = posrelat(i - 1, l);
+    
+    if (posi < 0 || (size_t)posi > l)
+        return NULL; /* empty interval; return no values */
+
+    lua_pushlstring(L, &s[posi], 1);
+    
+    return 1;
+}
+
 /* }====================================================== */
 
 static const luaL_Reg strlib[] = {
@@ -1635,6 +1650,7 @@ static const luaL_Reg strlib[] = {
     {"format", str_format},
     {"gmatch", gmatch},
     {"gsub", str_gsub},
+    {"index", str_index},
     {"len", str_len},
     {"lower", str_lower},
     {"match", str_match},
