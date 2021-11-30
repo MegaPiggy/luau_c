@@ -70,8 +70,10 @@ LUALIB_API int lc_add(lua_State * L, int idxa, int idxb)
       lua_pushvalue(L,idxb < 0 && idxb > LUA_REGISTRYINDEX ? idxb-2 : idxb);
       lua_call(L,2,1);
     }
-    else
+    else{
       luaL_error(L, "attempt to perform arithmetic");
+      return 0;
+    }
   }
   return 1;
 }
@@ -90,8 +92,10 @@ LUALIB_API int lc_sub(lua_State * L, int idxa, int idxb)
       lua_pushvalue(L,idxb < 0 && idxb > LUA_REGISTRYINDEX ? idxb-2 : idxb);
       lua_call(L,2,1);
     }
-    else
+    else{
       luaL_error(L, "attempt to perform arithmetic");
+      return 0;
+    }
   }
   return 1;
 }
@@ -109,8 +113,10 @@ LUALIB_API int lc_mul(lua_State * L, int idxa, int idxb) {
       lua_pushvalue(L,idxb < 0 && idxb > LUA_REGISTRYINDEX ? idxb-2 : idxb);
       lua_call(L,2,1);
     }
-    else
+    else{
       luaL_error(L, "attempt to perform arithmetic");
+      return 0;
+    }
   }
   return 1;
 }
@@ -129,9 +135,12 @@ LUALIB_API int lc_div(lua_State * L, int idxa, int idxb)
       lua_pushvalue(L,idxb < 0 && idxb > LUA_REGISTRYINDEX ? idxb-2 : idxb);
       lua_call(L,2,1);
     }
-    else
+    else{
       luaL_error(L, "attempt to perform arithmetic");
+      return 0;
+    }
   }
+  return 1;
 }
 
 
@@ -150,9 +159,12 @@ LUALIB_API int lc_mod(lua_State * L, int idxa, int idxb)
       lua_pushvalue(L,idxb < 0 && idxb > LUA_REGISTRYINDEX ? idxb-2 : idxb);
       lua_call(L,2,1);
     }
-    else
+    else{
       luaL_error(L, "attempt to perform arithmetic");
+      return 0;
+    }
   }
+  return 1;
 }
 
 
@@ -200,8 +212,10 @@ LUALIB_API int lc_unm(lua_State * L, int idxa)
       lua_pushvalue(L,idxa < 0 && idxa > LUA_REGISTRYINDEX ? idxa-1 : idxa);
       lua_call(L,1,1);
     }
-    else
+    else{
       luaL_error(L, "attempt to perform arithmetic");
+      return 0;
+    }
   }
   return 1;
 }

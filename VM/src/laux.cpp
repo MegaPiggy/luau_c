@@ -19,7 +19,7 @@
 ** =======================================================
 */
 
-static const char* currfuncname(lua_State* L)
+LUALIB_API const char* luaL_currfuncname(lua_State* L)
 {
     Closure* cl = L->ci > L->base_ci ? curr_func(L) : NULL;
     const char* debugname = cl && cl->isC ? cl->c.debugname + 0 : NULL;
@@ -32,7 +32,7 @@ static const char* currfuncname(lua_State* L)
 
 LUALIB_API l_noret luaL_argerrorL(lua_State* L, int narg, const char* extramsg)
 {
-    const char* fname = currfuncname(L);
+    const char* fname = luaL_currfuncname(L);
 
     if (fname)
         luaL_error(L, "invalid argument #%d to '%s' (%s)", narg, fname, extramsg);
@@ -42,7 +42,7 @@ LUALIB_API l_noret luaL_argerrorL(lua_State* L, int narg, const char* extramsg)
 
 LUALIB_API l_noret luaL_typeerrorL(lua_State* L, int narg, const char* tname)
 {
-    const char* fname = currfuncname(L);
+    const char* fname = luaL_currfuncname(L);
     const TValue* obj = luaA_toobject(L, narg);
 
     if (obj)

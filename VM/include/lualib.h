@@ -6,6 +6,7 @@
 
 #define luaL_error(L, fmt, ...) luaL_errorL(L, fmt, ##__VA_ARGS__)
 #define luaL_typeerror(L, narg, tname) luaL_typeerrorL(L, narg, tname)
+#define luaL_tagerror(L, narg, tag) luaL_typeerrorL(L, narg, lua_typename(L, tag))
 #define luaL_argerror(L, narg, extramsg) luaL_argerrorL(L, narg, extramsg)
 
 struct luaL_Reg
@@ -18,6 +19,7 @@ typedef struct luaL_Reg luaL_Reg;
 LUALIB_API void luaL_register(lua_State* L, const char* libname, const luaL_Reg* l);
 LUALIB_API int luaL_getmetafield(lua_State* L, int obj, const char* e);
 LUALIB_API int luaL_callmeta(lua_State* L, int obj, const char* e);
+LUALIB_API const char* luaL_currfuncname(lua_State* L);
 LUALIB_API l_noret luaL_typeerrorL(lua_State* L, int narg, const char* tname);
 LUALIB_API l_noret luaL_argerrorL(lua_State* L, int narg, const char* extramsg);
 LUALIB_API const char* luaL_checklstring(lua_State* L, int numArg, size_t* l);

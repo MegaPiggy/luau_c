@@ -140,21 +140,9 @@ cpr::Response Request(RequestMethod method, Ts&&... ts) {
     }
 }
 
-
-static const char* currfuncname(lua_State* L)
+static l_noret table_arg_error(lua_State* L, const char* nname, const char* extramsg)
 {
-    Closure* cl = L->ci > L->base_ci ? curr_func(L) : NULL;
-    const char* debugname = cl && cl->isC ? cl->c.debugname + 0 : NULL;
-
-    if (debugname && strcmp(debugname, "__namecall") == 0)
-        return L->namecall ? getstr(L->namecall) : NULL;
-    else
-        return debugname;
-}
-
-static l_noret table_arg_error(lua_State* L, int narg, const char* nname, const char* extramsg)
-{
-    const char* fname = currfuncname(L);
+    const char* fname = luaL_currfuncname(L);
 
     if (fname)
         luaL_error(L, "invalid %s to '%s' (%s)", nname, fname, extramsg);
@@ -164,7 +152,7 @@ static l_noret table_arg_error(lua_State* L, int narg, const char* nname, const 
 
 static l_noret table_type_error(lua_State* L, int narg, const char* nname, const char* tname)
 {
-    const char* fname = currfuncname(L);
+    const char* fname = luaL_currfuncname(L);
     const TValue* obj = luaA_toobject(L, narg);
 
     if (obj)
@@ -611,7 +599,7 @@ static std::tuple<cpr::Timeout, cpr::Redirect, Auth, cpr::Payload, cpr::Multipar
             int n = lua_tointegerx(L, -1, &isnum);
             if (isnum){
                 if (n < 0)
-                    table_arg_error(L, 1, "maximum redirects", "out of range");
+                    table_arg_error(L, "maximum redirects", "out of range");
                 redirect.maximum = n;
             }
         }
@@ -621,7 +609,7 @@ static std::tuple<cpr::Timeout, cpr::Redirect, Auth, cpr::Payload, cpr::Multipar
             int n = lua_tointegerx(L, -1, &isnum);
             if (isnum){
                 if (n < 0)
-                    table_arg_error(L, 1, "timeout", "out of range");
+                    table_arg_error(L, "timeout", "out of range");
                 timeout = cpr::Timeout(n);
             }
         }
