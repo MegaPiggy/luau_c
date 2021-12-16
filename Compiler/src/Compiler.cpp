@@ -62,6 +62,79 @@ static BytecodeBuilder::StringRef sref(AstArray<char> data)
     return {data.data, data.size};
 }
 
+#define ALLONES ~0u
+#define NBITS int(8 * sizeof(unsigned))
+
+/* macro to trim extra bits */
+#define trim(x) ((x)&ALLONES)
+
+/* builds a number with 'n' ones (1 <= n <= NBITS) */
+#define mask(n) (~((ALLONES << 1) << ((n)-1)))
+
+typedef unsigned b_uint;
+
+static b_uint band(b_uint a, b_uint b)
+{
+    b_uint r = ~(b_uint)0;
+    r &= a;
+    r &= b;
+    return trim(r);
+}
+
+static b_uint bor(b_uint a, b_uint b)
+{
+    b_uint r = (b_uint)0;
+    r |= a;
+    r |= b;
+    return trim(r);
+}
+
+static b_uint bxor(b_uint a, b_uint b)
+{
+    b_uint r = (b_uint)0;
+    r ^= a;
+    r ^= b;
+    return trim(r);
+}
+
+static b_uint bnot(b_uint a)
+{
+    b_uint r = ~a;
+    return trim(r);
+}
+
+static b_uint shift(b_uint r, int i)
+{
+    if (i < 0)
+    { /* shift right? */
+        i = -i;
+        r = trim(r);
+        if (i >= NBITS)
+            r = 0;
+        else
+            r >>= i;
+    }
+    else
+    { /* shift left */
+        if (i >= NBITS)
+            r = 0;
+        else
+            r <<= i;
+        r = trim(r);
+    }
+    return r;
+}
+
+static b_uint lshift(b_uint r, int i)
+{
+    return shift(r, i);
+}
+
+static b_uint rshift(b_uint r, int i)
+{
+    return shift(r, -i);
+}
+
 struct Compiler
 {
     struct Constant;
@@ -520,6 +593,9 @@ struct Compiler
         case AstExprUnary::Len:
             return LOP_LENGTH;
 
+        case AstExprUnary::Bnot:
+            return LOP_BNOT;
+
         default:
             LUAU_ASSERT(!"Unexpected unary operation");
             return LOP_NOP;
@@ -542,11 +618,29 @@ struct Compiler
         case AstExprBinary::Div:
             return k ? LOP_DIVK : LOP_DIV;
 
+        case AstExprBinary::IDiv:
+            return k ? LOP_IDIVK : LOP_IDIV;
+
         case AstExprBinary::Mod:
             return k ? LOP_MODK : LOP_MOD;
 
         case AstExprBinary::Pow:
             return k ? LOP_POWK : LOP_POW;
+
+        case AstExprBinary::Band:
+            return k ? LOP_BANDK : LOP_BAND;
+
+        case AstExprBinary::Bor:
+            return k ? LOP_BORK : LOP_BOR;
+
+        case AstExprBinary::Bxor:
+            return k ? LOP_BXORK : LOP_BXOR;
+
+        case AstExprBinary::Shr:
+            return k ? LOP_SHRK : LOP_SHR;
+
+        case AstExprBinary::Shl:
+            return k ? LOP_SHLK : LOP_SHL;
 
         default:
             LUAU_ASSERT(!"Unexpected binary operation");
@@ -952,8 +1046,14 @@ struct Compiler
         case AstExprBinary::Sub:
         case AstExprBinary::Mul:
         case AstExprBinary::Div:
+        case AstExprBinary::IDiv:
         case AstExprBinary::Mod:
         case AstExprBinary::Pow:
+        case AstExprBinary::Band:
+        case AstExprBinary::Bor:
+        case AstExprBinary::Bxor:
+        case AstExprBinary::Shr:
+        case AstExprBinary::Shl:
         {
             int32_t rc = getConstantNumber(expr->right);
 
@@ -2346,8 +2446,14 @@ struct Compiler
         case AstExprBinary::Sub:
         case AstExprBinary::Mul:
         case AstExprBinary::Div:
+        case AstExprBinary::IDiv:
         case AstExprBinary::Mod:
         case AstExprBinary::Pow:
+        case AstExprBinary::Band:
+        case AstExprBinary::Bor:
+        case AstExprBinary::Bxor:
+        case AstExprBinary::Shr:
+        case AstExprBinary::Shl:
         {
             if (var.kind != LValue::Kind_Local)
                 compileLValueUse(var, target, /* set= */ false);
@@ -2894,6 +3000,14 @@ struct Compiler
                 }
                 break;
 
+            case AstExprUnary::Bnot:
+                if (arg.type == Constant::Type_Number)
+                {
+                    result.type = Constant::Type_Number;
+                    result.valueNumber = bnot(arg.valueNumber);
+                }
+                break;
+
             default:
                 LUAU_ASSERT(!"Unexpected unary operation");
             }
@@ -2960,6 +3074,14 @@ struct Compiler
                 }
                 break;
 
+            case AstExprBinary::IDiv:
+                if (la.type == Constant::Type_Number && ra.type == Constant::Type_Number)
+                {
+                    result.type = Constant::Type_Number;
+                    result.valueNumber = floor(la.valueNumber / ra.valueNumber);
+                }
+                break;
+
             case AstExprBinary::Mod:
                 if (la.type == Constant::Type_Number && ra.type == Constant::Type_Number)
                 {
@@ -2973,6 +3095,46 @@ struct Compiler
                 {
                     result.type = Constant::Type_Number;
                     result.valueNumber = pow(la.valueNumber, ra.valueNumber);
+                }
+                break;
+
+            case AstExprBinary::Band:
+                if (la.type == Constant::Type_Number && ra.type == Constant::Type_Number)
+                {
+                    result.type = Constant::Type_Number;
+                    result.valueNumber = band(la.valueNumber, ra.valueNumber);
+                }
+                break;
+
+            case AstExprBinary::Bor:
+                if (la.type == Constant::Type_Number && ra.type == Constant::Type_Number)
+                {
+                    result.type = Constant::Type_Number;
+                    result.valueNumber = bor(la.valueNumber, ra.valueNumber);
+                }
+                break;
+
+            case AstExprBinary::Bxor:
+                if (la.type == Constant::Type_Number && ra.type == Constant::Type_Number)
+                {
+                    result.type = Constant::Type_Number;
+                    result.valueNumber = bxor(la.valueNumber, ra.valueNumber);
+                }
+                break;
+
+            case AstExprBinary::Shr:
+                if (la.type == Constant::Type_Number && ra.type == Constant::Type_Number)
+                {
+                    result.type = Constant::Type_Number;
+                    result.valueNumber = rshift(la.valueNumber, ra.valueNumber);
+                }
+                break;
+
+            case AstExprBinary::Shl:
+                if (la.type == Constant::Type_Number && ra.type == Constant::Type_Number)
+                {
+                    result.type = Constant::Type_Number;
+                    result.valueNumber = lshift(la.valueNumber, ra.valueNumber);
                 }
                 break;
 

@@ -32,8 +32,16 @@ LUALIB_API int luaL_optboolean(lua_State* L, int narg, int def);
 
 LUALIB_API int luaL_checkinteger(lua_State* L, int numArg);
 LUALIB_API int luaL_optinteger(lua_State* L, int nArg, int def);
+LUALIB_API long luaL_checklong(lua_State* L, int numArg);
+LUALIB_API long luaL_optlong(lua_State* L, int nArg, long def);
+LUALIB_API long long luaL_checkllong(lua_State* L, int numArg);
+LUALIB_API long long luaL_optllong(lua_State* L, int nArg, long long def);
 LUALIB_API unsigned luaL_checkunsigned(lua_State* L, int numArg);
 LUALIB_API unsigned luaL_optunsigned(lua_State* L, int numArg, unsigned def);
+LUALIB_API unsigned long luaL_checkulong(lua_State* L, int narg);
+LUALIB_API unsigned long long luaL_optulong(lua_State* L, int narg, unsigned long def);
+LUALIB_API unsigned long long luaL_checkullong(lua_State* L, int narg);
+LUALIB_API unsigned long long luaL_optullong(lua_State* L, int narg, unsigned long long def);
 
 LUALIB_API void luaL_checkstack(lua_State* L, int sz, const char* msg);
 LUALIB_API void luaL_checktype(lua_State* L, int narg, int t);
@@ -137,6 +145,15 @@ LUALIB_API int luaopen_json(lua_State* L);
 
 #define LUA_BASE64LIBNAME "base64"
 LUALIB_API int luaopen_base64(lua_State* L);
+
+#define LUA_TIMELIBNAME "time"
+LUALIB_API int luaopen_time(lua_State* L);
+
+#define LUA_ASCII85LIBNAME "ascii85"
+LUALIB_API int luaopen_ascii85(lua_State* L);
+
+#define LUA_BOOKLIBNAME "book"
+LUALIB_API int luaopen_book(lua_State* L);
 
 /* open all builtin libraries */
 LUALIB_API void luaL_openlibs(lua_State* L);

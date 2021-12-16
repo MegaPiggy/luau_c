@@ -470,6 +470,9 @@ struct Printer
             case AstExprUnary::Len:
                 writer.symbol("#");
                 break;
+            case AstExprUnary::Bnot:
+                writer.symbol("~");
+                break;
             }
             visualize(*a->expr);
         }
@@ -485,6 +488,12 @@ struct Printer
             case AstExprBinary::Div:
             case AstExprBinary::Mod:
             case AstExprBinary::Pow:
+            case AstExprBinary::IDiv:
+            case AstExprBinary::Band:
+            case AstExprBinary::Bor:
+            case AstExprBinary::Bxor:
+            case AstExprBinary::Shr:
+            case AstExprBinary::Shl:
             case AstExprBinary::CompareLt:
             case AstExprBinary::CompareGt:
                 writer.maybeSpace(a->right->location.begin, 2);
@@ -754,6 +763,30 @@ struct Printer
             case AstExprBinary::Pow:
                 writer.maybeSpace(a->value->location.begin, 2);
                 writer.symbol("^=");
+                break;
+            case AstExprBinary::IDiv:
+                writer.maybeSpace(a->value->location.begin, 2);
+                writer.symbol("//=");
+                break;
+            case AstExprBinary::Band:
+                writer.maybeSpace(a->value->location.begin, 2);
+                writer.symbol("&=");
+                break;
+            case AstExprBinary::Bor:
+                writer.maybeSpace(a->value->location.begin, 2);
+                writer.symbol("|=");
+                break;
+            case AstExprBinary::Bxor:
+                writer.maybeSpace(a->value->location.begin, 2);
+                writer.symbol("=~");
+                break;
+            case AstExprBinary::Shr:
+                writer.maybeSpace(a->value->location.begin, 2);
+                writer.symbol("<<=");
+                break;
+            case AstExprBinary::Shl:
+                writer.maybeSpace(a->value->location.begin, 2);
+                writer.symbol(">>=");
                 break;
             case AstExprBinary::Concat:
                 writer.maybeSpace(a->value->location.begin, 3);

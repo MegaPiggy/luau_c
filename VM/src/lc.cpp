@@ -3,6 +3,7 @@
 #include "lua.h"
 #include "lapi.h"
 #include "lualib.h"
+#include "lboost.h"
 
 LUALIB_API int lc_register(lua_State* L, const char* libname, int size)
 {
@@ -83,7 +84,7 @@ LUALIB_API int lc_add(lua_State * L, int idxa, int idxb)
 LUALIB_API int lc_sub(lua_State * L, int idxa, int idxb)
 {
   if (lua_isnumber(L,idxa) && lua_isnumber(L,idxb))
-    lua_pushnumber(L,lua_tonumber(L,idxa) - lua_tonumber(L,idxb));
+      lua_pushnumber(L,lua_tonumber(L,idxa) - lua_tonumber(L,idxb));
   else
   {
     if (luaL_getmetafield(L,idxa,"__sub")||luaL_getmetafield(L,idxb,"__sub"))
@@ -130,6 +131,28 @@ LUALIB_API int lc_div(lua_State * L, int idxa, int idxb)
   else
   {
     if (luaL_getmetafield(L,idxa,"__div")||luaL_getmetafield(L,idxb,"__div"))
+    {
+      lua_pushvalue(L,idxa < 0 && idxa > LUA_REGISTRYINDEX ? idxa-1 : idxa);
+      lua_pushvalue(L,idxb < 0 && idxb > LUA_REGISTRYINDEX ? idxb-2 : idxb);
+      lua_call(L,2,1);
+    }
+    else{
+      luaL_error(L, "attempt to perform arithmetic");
+      return 0;
+    }
+  }
+  return 1;
+}
+
+
+/* __idiv metamethod handler. */
+LUALIB_API int lc_idiv(lua_State * L, int idxa, int idxb)
+{
+  if (lua_isnumber(L,idxa) && lua_isnumber(L,idxb))
+    lua_pushinteger(L,lua_tonumber(L,idxa) / lua_tonumber(L,idxb));
+  else
+  {
+    if (luaL_getmetafield(L,idxa,"__idiv")||luaL_getmetafield(L,idxb,"__idiv"))
     {
       lua_pushvalue(L,idxa < 0 && idxa > LUA_REGISTRYINDEX ? idxa-1 : idxa);
       lua_pushvalue(L,idxb < 0 && idxb > LUA_REGISTRYINDEX ? idxb-2 : idxb);

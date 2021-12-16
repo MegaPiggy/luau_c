@@ -186,7 +186,7 @@ enum LuauOpcode
     LOP_JUMPIFNOTLE,
     LOP_JUMPIFNOTLT,
 
-    // ADD, SUB, MUL, DIV, MOD, POW: compute arithmetic operation between two source registers and put the result into target register
+    // ADD, SUB, MUL, DIV, MOD, POW, IDIV, BAND, BOR, BXOR, SHR, SHL: compute arithmetic operation between two source registers and put the result into target register
     // A: target register
     // B: source register 1
     // C: source register 2
@@ -196,8 +196,14 @@ enum LuauOpcode
     LOP_DIV,
     LOP_MOD,
     LOP_POW,
+    LOP_IDIV,
+    LOP_BAND,
+    LOP_BOR,
+    LOP_BXOR,
+    LOP_SHR,
+    LOP_SHL,
 
-    // ADDK, SUBK, MULK, DIVK, MODK, POWK: compute arithmetic operation between the source register and a constant and put the result into target register
+    // ADDK, SUBK, MULK, DIVK, MODK, POWK, IDIVK, BANDK, BORK, BXORK, SHRK, SHLK: compute arithmetic operation between the source register and a constant and put the result into target register
     // A: target register
     // B: source register
     // C: constant table index (0..255)
@@ -207,6 +213,12 @@ enum LuauOpcode
     LOP_DIVK,
     LOP_MODK,
     LOP_POWK,
+    LOP_IDIVK,
+    LOP_BANDK,
+    LOP_BORK,
+    LOP_BXORK,
+    LOP_SHRK,
+    LOP_SHLK,
 
     // AND, OR: perform `and` or `or` operation (selecting first or second register based on whether the first one is truthy) and put the result into target register
     // A: target register
@@ -228,12 +240,13 @@ enum LuauOpcode
     // C: source register end
     LOP_CONCAT,
 
-    // NOT, MINUS, LENGTH: compute unary operation for source register and put the result into target register
+    // NOT, MINUS, LENGTH, BNOT: compute unary operation for source register and put the result into target register
     // A: target register
     // B: source register
     LOP_NOT,
     LOP_MINUS,
     LOP_LENGTH,
+    LOP_BNOT,
 
     // NEWTABLE: create table in target register
     // A: target register

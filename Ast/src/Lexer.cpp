@@ -134,6 +134,15 @@ std::string Lexeme::toString() const
     case Dot3:
         return "'...'";
 
+    case IDiv:
+        return "'//'";
+
+    case Shr:
+        return "'>>'";
+
+    case Shl:
+        return "'<<'";
+
     case SkinnyArrow:
         return "'->'";
 
@@ -152,11 +161,29 @@ std::string Lexeme::toString() const
     case DivAssign:
         return "'/='";
 
+    case IDivAssign:
+        return "'//='";
+
     case ModAssign:
         return "'%='";
 
     case PowAssign:
         return "'^='";
+
+    case BandAssign:
+        return "'&='";
+
+    case BorAssign:
+        return "'|='";
+
+    case BxorAssign:
+        return "'=~'";
+
+    case ShrAssign:
+        return "'>>='";
+
+    case ShlAssign:
+        return "'<<='";
 
     case ConcatAssign:
         return "'..='";
@@ -677,6 +704,11 @@ Lexeme Lexer::readNext()
             consume();
             return Lexeme(Location(start, 2), Lexeme::Equal);
         }
+        else if (peekch() == '~')
+        {
+            consume();
+            return Lexeme(Location(start, 2), Lexeme::BxorAssign);
+        }
         else
             return Lexeme(Location(start, 1), '=');
     }
@@ -690,6 +722,17 @@ Lexeme Lexer::readNext()
             consume();
             return Lexeme(Location(start, 2), Lexeme::LessEqual);
         }
+        else if (peekch() == '<')
+        {
+            consume();
+            if (peekch() == '=')
+            {
+                consume();
+                return Lexeme(Location(start, 3), Lexeme::ShlAssign);
+            }
+            else
+                return Lexeme(Location(start, 2), Lexeme::Shl);
+        }
         else
             return Lexeme(Location(start, 1), '<');
     }
@@ -702,6 +745,17 @@ Lexeme Lexer::readNext()
         {
             consume();
             return Lexeme(Location(start, 2), Lexeme::GreaterEqual);
+        }
+        else if (peekch() == '>')
+        {
+            consume();
+            if (peekch() == '=')
+            {
+                consume();
+                return Lexeme(Location(start, 3), Lexeme::ShrAssign);
+            }
+            else
+                return Lexeme(Location(start, 2), Lexeme::Shr);
         }
         else
             return Lexeme(Location(start, 1), '>');
@@ -770,7 +824,19 @@ Lexeme Lexer::readNext()
     case '/':
         consume();
 
-        if (peekch() == '=')
+
+        if (peekch() == '/')
+        {
+            consume();
+            if (peekch() == '=')
+            {
+                consume();
+                return Lexeme(Location(start, 3), Lexeme::IDivAssign);
+            }
+            else
+                return Lexeme(Location(start, 2), Lexeme::IDiv);
+        }
+        else if (peekch() == '=')
         {
             consume();
             return Lexeme(Location(start, 2), Lexeme::DivAssign);
@@ -810,6 +876,28 @@ Lexeme Lexer::readNext()
         }
         else
             return Lexeme(Location(start, 1), '^');
+
+    case '&':
+        consume();
+
+        if (peekch() == '=')
+        {
+            consume();
+            return Lexeme(Location(start, 2), Lexeme::BandAssign);
+        }
+        else
+            return Lexeme(Location(start, 1), '&');
+
+    case '|':
+        consume();
+
+        if (peekch() == '=')
+        {
+            consume();
+            return Lexeme(Location(start, 2), Lexeme::BorAssign);
+        }
+        else
+            return Lexeme(Location(start, 1), '|');
 
     case ':':
     {

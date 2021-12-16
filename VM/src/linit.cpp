@@ -17,6 +17,9 @@ static const luaL_Reg lualibs[] = {
     {LUA_CPRLIBNAME, luaopen_cpr},
     {LUA_JSONLIBNAME, luaopen_json},
     {LUA_BASE64LIBNAME, luaopen_base64},
+    {LUA_ASCII85LIBNAME, luaopen_ascii85},
+    {LUA_TIMELIBNAME, luaopen_time},
+    {LUA_BOOKLIBNAME, luaopen_book},
     {NULL, NULL},
 };
 

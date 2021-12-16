@@ -218,6 +218,34 @@ LUALIB_API int luaL_optinteger(lua_State* L, int narg, int def)
     return luaL_opt(L, luaL_checkinteger, narg, def);
 }
 
+LUALIB_API long luaL_checklong(lua_State* L, int narg)
+{
+    int isnum;
+    long d = lua_tolongx(L, narg, &isnum);
+    if (!isnum)
+        tag_error(L, narg, LUA_TNUMBER);
+    return d;
+}
+
+LUALIB_API long luaL_optlong(lua_State* L, int narg, long def)
+{
+    return luaL_opt(L, luaL_checklong, narg, def);
+}
+
+LUALIB_API long long luaL_checkllong(lua_State* L, int narg)
+{
+    int isnum;
+    long long d = lua_tollongx(L, narg, &isnum);
+    if (!isnum)
+        tag_error(L, narg, LUA_TNUMBER);
+    return d;
+}
+
+LUALIB_API long long luaL_optllong(lua_State* L, int narg, long long def)
+{
+    return luaL_opt(L, luaL_checkllong, narg, def);
+}
+
 LUALIB_API unsigned luaL_checkunsigned(lua_State* L, int narg)
 {
     int isnum;
@@ -230,6 +258,34 @@ LUALIB_API unsigned luaL_checkunsigned(lua_State* L, int narg)
 LUALIB_API unsigned luaL_optunsigned(lua_State* L, int narg, unsigned def)
 {
     return luaL_opt(L, luaL_checkunsigned, narg, def);
+}
+
+LUALIB_API unsigned long luaL_checkulong(lua_State* L, int narg)
+{
+    int isnum;
+    unsigned long d = lua_toulongx(L, narg, &isnum);
+    if (!isnum)
+        tag_error(L, narg, LUA_TNUMBER);
+    return d;
+}
+
+LUALIB_API unsigned long long luaL_optulong(lua_State* L, int narg, unsigned long def)
+{
+    return luaL_opt(L, luaL_checkulong, narg, def);
+}
+
+LUALIB_API unsigned long long luaL_checkullong(lua_State* L, int narg)
+{
+    int isnum;
+    unsigned long long d = lua_toullongx(L, narg, &isnum);
+    if (!isnum)
+        tag_error(L, narg, LUA_TNUMBER);
+    return d;
+}
+
+LUALIB_API unsigned long long luaL_optullong(lua_State* L, int narg, unsigned long long def)
+{
+    return luaL_opt(L, luaL_checkullong, narg, def);
 }
 
 LUALIB_API int luaL_getmetafield(lua_State* L, int obj, const char* event)

@@ -244,6 +244,8 @@ std::string toString(AstExprUnary::Op op)
         return "not";
     case AstExprUnary::Len:
         return "#";
+    case AstExprUnary::Bnot:
+        return "~";
     default:
         LUAU_ASSERT(false);
         return ""; // MSVC requires this even though the switch/case is exhaustive
@@ -283,6 +285,18 @@ std::string toString(AstExprBinary::Op op)
         return "%";
     case AstExprBinary::Pow:
         return "^";
+    case AstExprBinary::IDiv:
+        return "//";
+    case AstExprBinary::Band:
+        return "&";
+    case AstExprBinary::Bor:
+        return "|";
+    case AstExprBinary::Bxor:
+        return "~";
+    case AstExprBinary::Shr:
+        return ">>";
+    case AstExprBinary::Shl:
+        return "<<";
     case AstExprBinary::Concat:
         return "..";
     case AstExprBinary::CompareNe:

@@ -9,6 +9,8 @@
 #include "ldo.h"
 #include "lnumutils.h"
 
+#include "lbit.h"
+
 #include <string.h>
 
 /* limit for table tag-method chains (to avoid loops) */
@@ -385,6 +387,27 @@ void luaV_doarith(lua_State* L, StkId ra, const TValue* rb, const TValue* rc, TM
         case TM_UNM:
             setnvalue(ra, luai_numunm(nb));
             break;
+        case TM_IDIV:
+            setnvalue(ra, luai_numidiv(nb, nc));
+            break;
+        case TM_BAND:
+            setnvalue(ra, luai_numband(nb, nc));
+            break;
+        case TM_BOR:
+            setnvalue(ra, luai_numbor(nb, nc));
+            break;
+        case TM_BXOR:
+            setnvalue(ra, luai_numbxor(nb, nc));
+            break;
+        case TM_BNOT:
+            setnvalue(ra, luai_numbnot(nb));
+            break;
+        case TM_SHR:
+            setnvalue(ra, luai_numshr(nb, nc));
+            break;
+        case TM_SHL:
+            setnvalue(ra, luai_numshl(nb, nc));
+            break;
         default:
             LUAU_ASSERT(0);
             break;
@@ -412,9 +435,36 @@ void luaV_doarith(lua_State* L, StkId ra, const TValue* rb, const TValue* rc, TM
             case TM_DIV:
                 setvvalue(ra, vb[0] / vc[0], vb[1] / vc[1], vb[2] / vc[2], vb[3] / vc[3]);
                 return;
+            case TM_MOD:
+                setvvalue(ra, fmod(vb[0], vc[0]), fmod(vb[1], vc[1]), fmod(vb[2], vc[2]), fmod(vb[3], vc[3]));
+                break;
+            case TM_POW:
+                setvvalue(ra, pow(vb[0], vc[0]), pow(vb[1], vc[1]), pow(vb[2], vc[2]), pow(vb[3], vc[3]));
+                break;
+            case TM_IDIV:
+                setvvalue(ra, floor(vb[0] / vc[0]), floor(vb[1] / vc[1]), floor(vb[2] / vc[2]), floor(vb[3] / vc[3]));
+                return;
             case TM_UNM:
                 setvvalue(ra, -vb[0], -vb[1], -vb[2], -vb[3]);
                 return;
+            case TM_BAND:
+                setvvalue(ra, band(vb[0], vc[0]), band(vb[1], vc[1]), band(vb[2], vc[2]), band(vb[3], vc[3]));
+                break;
+            case TM_BOR:
+                setvvalue(ra, bor(vb[0], vc[0]), bor(vb[1], vc[1]), bor(vb[2], vc[2]), bor(vb[3], vc[3]));
+                break;
+            case TM_BXOR:
+                setvvalue(ra, bxor(vb[0], vc[0]), bxor(vb[1], vc[1]), bxor(vb[2], vc[2]), bxor(vb[3], vc[3]));
+                break;
+            case TM_BNOT:
+                setvvalue(ra, bnot(vb[0]), bnot(vb[1]), bnot(vb[2]), bnot(vb[3]));
+                break;
+            case TM_SHR:
+                setvvalue(ra, rshift(vb[0], vc[0]), rshift(vb[1], vc[1]), rshift(vb[2], vc[2]), rshift(vb[3], vc[3]));
+                break;
+            case TM_SHL:
+                setvvalue(ra, lshift(vb[0], vc[0]), lshift(vb[1], vc[1]), lshift(vb[2], vc[2]), lshift(vb[3], vc[3]));
+                break;
             default:
                 break;
             }
@@ -435,6 +485,30 @@ void luaV_doarith(lua_State* L, StkId ra, const TValue* rb, const TValue* rc, TM
                 case TM_DIV:
                     setvvalue(ra, vb[0] / nc, vb[1] / nc, vb[2] / nc, vb[3] / nc);
                     return;
+                case TM_MOD:
+                    setvvalue(ra, fmod(vb[0], nc), fmod(vb[1], nc), fmod(vb[2], nc), fmod(vb[3], nc));
+                    break;
+                case TM_POW:
+                    setvvalue(ra, pow(vb[0], nc), pow(vb[1], nc), pow(vb[2], nc), pow(vb[3], nc));
+                    break;
+                case TM_IDIV:
+                    setvvalue(ra, floor(vb[0] / nc), floor(vb[1] / nc), floor(vb[2] / nc), floor(vb[3] / nc));
+                    return;
+                case TM_BAND:
+                    setvvalue(ra, band(vb[0], nc), band(vb[1], nc), band(vb[2], nc), band(vb[3], nc));
+                    break;
+                case TM_BOR:
+                    setvvalue(ra, bor(vb[0], nc), bor(vb[1], nc), bor(vb[2], nc), bor(vb[3], nc));
+                    break;
+                case TM_BXOR:
+                    setvvalue(ra, bxor(vb[0], nc), bxor(vb[1], nc), bxor(vb[2], nc), bxor(vb[3], nc));
+                    break;
+                case TM_SHR:
+                    setvvalue(ra, rshift(vb[0], nc), rshift(vb[1], nc), rshift(vb[2], nc), rshift(vb[3], nc));
+                    break;
+                case TM_SHL:
+                    setvvalue(ra, lshift(vb[0], nc), lshift(vb[1], nc), lshift(vb[2], nc), lshift(vb[3], nc));
+                    break;
                 default:
                     break;
                 }
@@ -455,6 +529,9 @@ void luaV_doarith(lua_State* L, StkId ra, const TValue* rb, const TValue* rc, TM
                     return;
                 case TM_DIV:
                     setvvalue(ra, nb / vc[0], nb / vc[1], nb / vc[2], nb / vc[3]);
+                    return;
+                case TM_IDIV:
+                    setvvalue(ra, floor(nb / vc[0]), floor(nb / vc[1]), floor(nb / vc[2]), floor(nb / vc[3]));
                     return;
                 default:
                     break;

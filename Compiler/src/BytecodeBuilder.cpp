@@ -1102,6 +1102,12 @@ void BytecodeBuilder::validate() const
         case LOP_DIV:
         case LOP_MOD:
         case LOP_POW:
+        case LOP_IDIV:
+        case LOP_BAND:
+        case LOP_BOR:
+        case LOP_BXOR:
+        case LOP_SHR:
+        case LOP_SHL:
             VREG(LUAU_INSN_A(insn));
             VREG(LUAU_INSN_B(insn));
             VREG(LUAU_INSN_C(insn));
@@ -1113,6 +1119,12 @@ void BytecodeBuilder::validate() const
         case LOP_DIVK:
         case LOP_MODK:
         case LOP_POWK:
+        case LOP_IDIVK:
+        case LOP_BANDK:
+        case LOP_BORK:
+        case LOP_BXORK:
+        case LOP_SHRK:
+        case LOP_SHLK:
             VREG(LUAU_INSN_A(insn));
             VREG(LUAU_INSN_B(insn));
             VCONST(LUAU_INSN_C(insn), Number);
@@ -1142,6 +1154,7 @@ void BytecodeBuilder::validate() const
         case LOP_NOT:
         case LOP_MINUS:
         case LOP_LENGTH:
+        case LOP_BNOT:
             VREG(LUAU_INSN_A(insn));
             VREG(LUAU_INSN_B(insn));
             break;
@@ -1446,6 +1459,30 @@ const uint32_t* BytecodeBuilder::dumpInstruction(const uint32_t* code, std::stri
         formatAppend(result, "POW R%d R%d R%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn), LUAU_INSN_C(insn));
         break;
 
+    case LOP_IDIV:
+        formatAppend(result, "IDIV R%d R%d R%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn), LUAU_INSN_C(insn));
+        break;
+
+    case LOP_BAND:
+        formatAppend(result, "BAND R%d R%d R%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn), LUAU_INSN_C(insn));
+        break;
+
+    case LOP_BOR:
+        formatAppend(result, "BOR R%d R%d R%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn), LUAU_INSN_C(insn));
+        break;
+
+    case LOP_BXOR:
+        formatAppend(result, "BXOR R%d R%d R%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn), LUAU_INSN_C(insn));
+        break;
+
+    case LOP_SHR:
+        formatAppend(result, "SHR R%d R%d R%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn), LUAU_INSN_C(insn));
+        break;
+
+    case LOP_SHL:
+        formatAppend(result, "SHL R%d R%d R%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn), LUAU_INSN_C(insn));
+        break;
+
     case LOP_ADDK:
         formatAppend(result, "ADDK R%d R%d K%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn), LUAU_INSN_C(insn));
         break;
@@ -1468,6 +1505,30 @@ const uint32_t* BytecodeBuilder::dumpInstruction(const uint32_t* code, std::stri
 
     case LOP_POWK:
         formatAppend(result, "POWK R%d R%d K%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn), LUAU_INSN_C(insn));
+        break;
+
+    case LOP_IDIVK:
+        formatAppend(result, "IDIVK R%d R%d K%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn), LUAU_INSN_C(insn));
+        break;
+
+    case LOP_BANDK:
+        formatAppend(result, "BANDK R%d R%d K%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn), LUAU_INSN_C(insn));
+        break;
+
+    case LOP_BORK:
+        formatAppend(result, "BORK R%d R%d K%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn), LUAU_INSN_C(insn));
+        break;
+
+    case LOP_BXORK:
+        formatAppend(result, "BXORK R%d R%d K%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn), LUAU_INSN_C(insn));
+        break;
+
+    case LOP_SHRK:
+        formatAppend(result, "SHRK R%d R%d K%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn), LUAU_INSN_C(insn));
+        break;
+
+    case LOP_SHLK:
+        formatAppend(result, "SHLK R%d R%d K%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn), LUAU_INSN_C(insn));
         break;
 
     case LOP_AND:
@@ -1500,6 +1561,10 @@ const uint32_t* BytecodeBuilder::dumpInstruction(const uint32_t* code, std::stri
 
     case LOP_LENGTH:
         formatAppend(result, "LENGTH R%d R%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn));
+        break;
+
+    case LOP_BNOT:
+        formatAppend(result, "BNOT R%d R%d\n", LUAU_INSN_A(insn), LUAU_INSN_B(insn));
         break;
 
     case LOP_NEWTABLE:

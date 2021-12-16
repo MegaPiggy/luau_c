@@ -93,6 +93,11 @@ const TValue* luaA_toobject(lua_State* L, int idx)
     return (p == luaO_nilobject) ? NULL : p;
 }
 
+TValue* luaA_index2adr(lua_State* L, int idx)
+{
+    return index2adr(L, idx);
+}
+
 void luaA_pushobject(lua_State* L, const TValue* o)
 {
     setobj2s(L, L->top, o);
@@ -423,6 +428,48 @@ unsigned lua_tounsignedx(lua_State* L, int idx, int* isnum)
     }
 }
 
+unsigned long lua_toulongx(lua_State* L, int idx, int* isnum)
+{
+    TValue n;
+    const TValue* o = index2adr(L, idx);
+    if (tonumber(o, &n))
+    {
+        unsigned long res;
+        double num = nvalue(o);
+        luai_num2unsigned(res, num);
+        if (isnum)
+            *isnum = 1;
+        return res;
+    }
+    else
+    {
+        if (isnum)
+            *isnum = 0;
+        return 0;
+    }
+}
+
+unsigned long long lua_toullongx(lua_State* L, int idx, int* isnum)
+{
+    TValue n;
+    const TValue* o = index2adr(L, idx);
+    if (tonumber(o, &n))
+    {
+        unsigned long long res;
+        double num = nvalue(o);
+        luai_num2unsigned(res, num);
+        if (isnum)
+            *isnum = 1;
+        return res;
+    }
+    else
+    {
+        if (isnum)
+            *isnum = 0;
+        return 0;
+    }
+}
+
 int lua_toboolean(lua_State* L, int idx)
 {
     const TValue* o = index2adr(L, idx);
@@ -602,6 +649,20 @@ void lua_pushllong(lua_State* L, long long n)
 void lua_pushunsigned(lua_State* L, unsigned u)
 {
     setnvalue(L->top, cast_num(u));
+    api_incr_top(L);
+    return;
+}
+
+void lua_pushulong(lua_State* L, unsigned long n)
+{
+    setnvalue(L->top, cast_num(n));
+    api_incr_top(L);
+    return;
+}
+
+void lua_pushullong(lua_State* L, unsigned long long n)
+{
+    setnvalue(L->top, cast_num(n));
     api_incr_top(L);
     return;
 }
@@ -1366,6 +1427,10 @@ void lua_dumpstack(lua_State* L)
     
           case LUA_TNUMBER:  /* numbers */
             printf("%g", lua_tonumber(L, i));
+            break;
+    
+          case LUA_TVECTOR:  /* vector */
+            printf("%g", lua_tovector(L, i));
             break;
     
           default:  /* other values */

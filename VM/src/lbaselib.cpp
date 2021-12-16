@@ -436,6 +436,7 @@ static const luaL_Reg base_funcs[] = {
     {"gcinfo", luaB_gcinfo},
     {"getfenv", luaB_getfenv},
     {"getmetatable", luaB_getmetatable},
+    {"inext", luaB_inext},
     {"next", luaB_next},
     {"newproxy", luaB_newproxy},
     {"print", luaB_print},

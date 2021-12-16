@@ -16,6 +16,7 @@ LUAU_FASTFLAGVARIABLE(LuauBit32Count, false)
 /* builds a number with 'n' ones (1 <= n <= NBITS) */
 #define mask(n) (~((ALLONES << 1) << ((n)-1)))
 
+typedef int b_int;
 typedef unsigned b_uint;
 
 static b_uint andaux(lua_State* L)

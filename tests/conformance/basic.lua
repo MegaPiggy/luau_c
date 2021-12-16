@@ -462,6 +462,7 @@ local function vec3t(x, y, z)
         __sub = function(l, r) return vec3t(l.x - r.x, l.y - r.y, l.z - r.z) end,
         __mul = function(l, r) return type(r) == "number" and vec3t(l.x * r, l.y * r, l.z * r) or vec3t(l.x * r.x, l.y * r.y, l.z * r.z) end,
         __div = function(l, r) return type(r) == "number" and vec3t(l.x / r, l.y / r, l.z / r) or vec3t(l.x / r.x, l.y / r.y, l.z / r.z) end,
+        __idiv = function(l, r) return type(r) == "number" and vec3t(l.x // r, l.y // r, l.z // r) or vec3t(l.x // r.x, l.y // r.y, l.z // r.z) end,
         __unm = function(v) return vec3t(-v.x, -v.y, -v.z) end,
         __tostring = function(v) return string.format("%g, %g, %g", v.x, v.y, v.z) end
     })

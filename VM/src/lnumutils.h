@@ -5,11 +5,20 @@
 #include <math.h>
 #include <stdio.h>
 
+#include "lbit.h"
+
 #define luai_numadd(a, b) ((a) + (b))
 #define luai_numsub(a, b) ((a) - (b))
 #define luai_nummul(a, b) ((a) * (b))
 #define luai_numdiv(a, b) ((a) / (b))
+#define luai_numidiv(a, b) (floor((a) / (b)))
 #define luai_numpow(a, b) (pow(a, b))
+#define luai_numband(a, b) (band(a, b))
+#define luai_numbor(a, b) (bor(a, b))
+#define luai_numbxor(a, b) (bxor(a, b))
+#define luai_numbnot(a) (bnot(a))
+#define luai_numshr(a, b) (rshift(a, b))
+#define luai_numshl(a, b) (lshift(a, b))
 #define luai_numunm(a) (-(a))
 #define luai_numisnan(a) ((a) != (a))
 #define luai_numeq(a, b) ((a) == (b))

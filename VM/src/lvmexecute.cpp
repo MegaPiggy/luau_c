@@ -14,6 +14,8 @@
 #include "lnumutils.h"
 #include "lbytecode.h"
 
+#include "lbit.h"
+
 #include <string.h>
 
 // Disable c99-designator to avoid the warning in CGOTO dispatch table
@@ -93,8 +95,8 @@
         VM_DISPATCH_OP(LOP_CALL), VM_DISPATCH_OP(LOP_RETURN), VM_DISPATCH_OP(LOP_JUMP), VM_DISPATCH_OP(LOP_JUMPBACK), VM_DISPATCH_OP(LOP_JUMPIF), \
         VM_DISPATCH_OP(LOP_JUMPIFNOT), VM_DISPATCH_OP(LOP_JUMPIFEQ), VM_DISPATCH_OP(LOP_JUMPIFLE), VM_DISPATCH_OP(LOP_JUMPIFLT), \
         VM_DISPATCH_OP(LOP_JUMPIFNOTEQ), VM_DISPATCH_OP(LOP_JUMPIFNOTLE), VM_DISPATCH_OP(LOP_JUMPIFNOTLT), VM_DISPATCH_OP(LOP_ADD), \
-        VM_DISPATCH_OP(LOP_SUB), VM_DISPATCH_OP(LOP_MUL), VM_DISPATCH_OP(LOP_DIV), VM_DISPATCH_OP(LOP_MOD), VM_DISPATCH_OP(LOP_POW), \
-        VM_DISPATCH_OP(LOP_ADDK), VM_DISPATCH_OP(LOP_SUBK), VM_DISPATCH_OP(LOP_MULK), VM_DISPATCH_OP(LOP_DIVK), VM_DISPATCH_OP(LOP_MODK), \
+        VM_DISPATCH_OP(LOP_SUB), VM_DISPATCH_OP(LOP_MUL), VM_DISPATCH_OP(LOP_DIV), VM_DISPATCH_OP(LOP_IDIV), VM_DISPATCH_OP(LOP_MOD), VM_DISPATCH_OP(LOP_POW), \
+        VM_DISPATCH_OP(LOP_ADDK), VM_DISPATCH_OP(LOP_SUBK), VM_DISPATCH_OP(LOP_MULK), VM_DISPATCH_OP(LOP_DIVK), VM_DISPATCH_OP(LOP_IDIVK), VM_DISPATCH_OP(LOP_MODK), \
         VM_DISPATCH_OP(LOP_POWK), VM_DISPATCH_OP(LOP_AND), VM_DISPATCH_OP(LOP_OR), VM_DISPATCH_OP(LOP_ANDK), VM_DISPATCH_OP(LOP_ORK), \
         VM_DISPATCH_OP(LOP_CONCAT), VM_DISPATCH_OP(LOP_NOT), VM_DISPATCH_OP(LOP_MINUS), VM_DISPATCH_OP(LOP_LENGTH), VM_DISPATCH_OP(LOP_NEWTABLE), \
         VM_DISPATCH_OP(LOP_DUPTABLE), VM_DISPATCH_OP(LOP_SETLIST), VM_DISPATCH_OP(LOP_FORNPREP), VM_DISPATCH_OP(LOP_FORNLOOP), \
@@ -1729,6 +1731,67 @@ static void luau_execute(lua_State* L)
                 }
             }
 
+            VM_CASE(LOP_IDIV)
+            {
+                Instruction insn = *pc++;
+                StkId ra = VM_REG(LUAU_INSN_A(insn));
+                StkId rb = VM_REG(LUAU_INSN_B(insn));
+                StkId rc = VM_REG(LUAU_INSN_C(insn));
+
+                // fast-path
+                if (ttisnumber(rb) && ttisnumber(rc))
+                {
+                    setnvalue(ra, floor(nvalue(rb) / nvalue(rc)));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb) && ttisnumber(rc))
+                {
+                    const float* vb = rb->value.v;
+                    float vc = cast_to(float, nvalue(rc));
+                    setvvalue(ra, floor(vb[0] / vc), floor(vb[1] / vc), floor(vb[2] / vc), floor(vb[3] / vc));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb) && ttisvector(rc))
+                {
+                    const float* vb = rb->value.v;
+                    const float* vc = rc->value.v;
+                    setvvalue(ra, floor(vb[0] / vc[0]), floor(vb[1] / vc[1]), floor(vb[2] / vc[2]), floor(vb[3] / vc[3]));
+                    VM_NEXT();
+                }
+                else if (ttisnumber(rb) && ttisvector(rc))
+                {
+                    float vb = cast_to(float, nvalue(rb));
+                    const float* vc = rc->value.v;
+                    setvvalue(ra, floor(vb / vc[0]), floor(vb / vc[1]), floor(vb / vc[2]), floor(vb / vc[3]));
+                    VM_NEXT();
+                }
+                else
+                {
+                    // fast-path for userdata with C functions
+                    StkId rbc = ttisnumber(rb) ? rc : rb;
+                    const TValue* fn = 0;
+                    if (ttisuserdata(rbc) && (fn = luaT_gettmbyobj(L, rbc, TM_IDIV)) && ttisfunction(fn) && clvalue(fn)->isC)
+                    {
+                        // note: it's safe to push arguments past top for complicated reasons (see top of the file)
+                        LUAU_ASSERT(L->top + 3 < L->stack + L->stacksize);
+                        StkId top = L->top;
+                        setobj2s(L, top + 0, fn);
+                        setobj2s(L, top + 1, rb);
+                        setobj2s(L, top + 2, rc);
+                        L->top = top + 3;
+
+                        VM_PROTECT(luau_callTM(L, 2, LUAU_INSN_A(insn)));
+                        VM_NEXT();
+                    }
+                    else
+                    {
+                        // slow-path, may invoke C/Lua via metamethods
+                        VM_PROTECT(luaV_doarith(L, ra, rb, rc, TM_IDIV));
+                        VM_NEXT();
+                    }
+                }
+            }
+
             VM_CASE(LOP_MOD)
             {
                 Instruction insn = *pc++;
@@ -1765,11 +1828,337 @@ static void luau_execute(lua_State* L)
                     setnvalue(ra, pow(nvalue(rb), nvalue(rc)));
                     VM_NEXT();
                 }
+                else if (ttisvector(rb) && ttisnumber(rc))
+                {
+                    const float* vb = rb->value.v;
+                    float vc = cast_to(float, nvalue(rc));
+                    setvvalue(ra, pow(vb[0], vc), pow(vb[1], vc), pow(vb[2], vc), pow(vb[3], vc));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb) && ttisvector(rc))
+                {
+                    const float* vb = rb->value.v;
+                    const float* vc = rc->value.v;
+                    setvvalue(ra, pow(vb[0], vc[0]), pow(vb[1], vc[1]), pow(vb[2], vc[2]), pow(vb[3], vc[3]));
+                    VM_NEXT();
+                }
+                else if (ttisnumber(rb) && ttisvector(rc))
+                {
+                    float vb = cast_to(float, nvalue(rb));
+                    const float* vc = rc->value.v;
+                    setvvalue(ra, pow(vb, vc[0]), pow(vb, vc[1]), pow(vb, vc[2]), pow(vb, vc[3]));
+                    VM_NEXT();
+                }
                 else
                 {
                     // slow-path, may invoke C/Lua via metamethods
                     VM_PROTECT(luaV_doarith(L, ra, rb, rc, TM_POW));
                     VM_NEXT();
+                }
+            }
+
+            VM_CASE(LOP_BAND)
+            {
+                Instruction insn = *pc++;
+                StkId ra = VM_REG(LUAU_INSN_A(insn));
+                StkId rb = VM_REG(LUAU_INSN_B(insn));
+                StkId rc = VM_REG(LUAU_INSN_C(insn));
+
+                // fast-path
+                if (ttisnumber(rb) && ttisnumber(rc))
+                {
+                    setnvalue(ra, band(nvalue(rb), nvalue(rc)));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb) && ttisnumber(rc))
+                {
+                    const float* vb = rb->value.v;
+                    float vc = cast_to(float, nvalue(rc));
+                    setvvalue(ra, band(vb[0], vc), band(vb[1], vc), band(vb[2], vc), band(vb[3], vc));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb) && ttisvector(rc))
+                {
+                    const float* vb = rb->value.v;
+                    const float* vc = rc->value.v;
+                    setvvalue(ra, band(vb[0], vc[0]), band(vb[1], vc[1]), band(vb[2], vc[2]), band(vb[3], vc[3]));
+                    VM_NEXT();
+                }
+                else if (ttisnumber(rb) && ttisvector(rc))
+                {
+                    float vb = cast_to(float, nvalue(rb));
+                    const float* vc = rc->value.v;
+                    setvvalue(ra, band(vb, vc[0]), band(vb, vc[1]), band(vb, vc[2]), band(vb, vc[3]));
+                    VM_NEXT();
+                }
+                else
+                {
+                    // fast-path for userdata with C functions
+                    StkId rbc = ttisnumber(rb) ? rc : rb;
+                    const TValue* fn = 0;
+                    if (ttisuserdata(rbc) && (fn = luaT_gettmbyobj(L, rbc, TM_BAND)) && ttisfunction(fn) && clvalue(fn)->isC)
+                    {
+                        // note: it's safe to push arguments past top for complicated reasons (see top of the file)
+                        LUAU_ASSERT(L->top + 3 < L->stack + L->stacksize);
+                        StkId top = L->top;
+                        setobj2s(L, top + 0, fn);
+                        setobj2s(L, top + 1, rb);
+                        setobj2s(L, top + 2, rc);
+                        L->top = top + 3;
+
+                        VM_PROTECT(luau_callTM(L, 2, LUAU_INSN_A(insn)));
+                        VM_NEXT();
+                    }
+                    else
+                    {
+                        // slow-path, may invoke C/Lua via metamethods
+                        VM_PROTECT(luaV_doarith(L, ra, rb, rc, TM_BAND));
+                        VM_NEXT();
+                    }
+                }
+            }
+
+            VM_CASE(LOP_BOR)
+            {
+                Instruction insn = *pc++;
+                StkId ra = VM_REG(LUAU_INSN_A(insn));
+                StkId rb = VM_REG(LUAU_INSN_B(insn));
+                StkId rc = VM_REG(LUAU_INSN_C(insn));
+
+                // fast-path
+                if (ttisnumber(rb) && ttisnumber(rc))
+                {
+                    setnvalue(ra, bor(nvalue(rb), nvalue(rc)));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb) && ttisnumber(rc))
+                {
+                    const float* vb = rb->value.v;
+                    float vc = cast_to(float, nvalue(rc));
+                    setvvalue(ra, bor(vb[0], vc), bor(vb[1], vc), bor(vb[2], vc), bor(vb[3], vc));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb) && ttisvector(rc))
+                {
+                    const float* vb = rb->value.v;
+                    const float* vc = rc->value.v;
+                    setvvalue(ra, bor(vb[0], vc[0]), bor(vb[1], vc[1]), bor(vb[2], vc[2]), bor(vb[3], vc[3]));
+                    VM_NEXT();
+                }
+                else if (ttisnumber(rb) && ttisvector(rc))
+                {
+                    float vb = cast_to(float, nvalue(rb));
+                    const float* vc = rc->value.v;
+                    setvvalue(ra, bor(vb, vc[0]), bor(vb, vc[1]), bor(vb, vc[2]), bor(vb, vc[3]));
+                    VM_NEXT();
+                }
+                else
+                {
+                    // fast-path for userdata with C functions
+                    StkId rbc = ttisnumber(rb) ? rc : rb;
+                    const TValue* fn = 0;
+                    if (ttisuserdata(rbc) && (fn = luaT_gettmbyobj(L, rbc, TM_BOR)) && ttisfunction(fn) && clvalue(fn)->isC)
+                    {
+                        // note: it's safe to push arguments past top for complicated reasons (see top of the file)
+                        LUAU_ASSERT(L->top + 3 < L->stack + L->stacksize);
+                        StkId top = L->top;
+                        setobj2s(L, top + 0, fn);
+                        setobj2s(L, top + 1, rb);
+                        setobj2s(L, top + 2, rc);
+                        L->top = top + 3;
+
+                        VM_PROTECT(luau_callTM(L, 2, LUAU_INSN_A(insn)));
+                        VM_NEXT();
+                    }
+                    else
+                    {
+                        // slow-path, may invoke C/Lua via metamethods
+                        VM_PROTECT(luaV_doarith(L, ra, rb, rc, TM_BOR));
+                        VM_NEXT();
+                    }
+                }
+            }
+
+            VM_CASE(LOP_BXOR)
+            {
+                Instruction insn = *pc++;
+                StkId ra = VM_REG(LUAU_INSN_A(insn));
+                StkId rb = VM_REG(LUAU_INSN_B(insn));
+                StkId rc = VM_REG(LUAU_INSN_C(insn));
+
+                // fast-path
+                if (ttisnumber(rb) && ttisnumber(rc))
+                {
+                    setnvalue(ra, bxor(nvalue(rb), nvalue(rc)));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb) && ttisnumber(rc))
+                {
+                    const float* vb = rb->value.v;
+                    float vc = cast_to(float, nvalue(rc));
+                    setvvalue(ra, bxor(vb[0], vc), bxor(vb[1], vc), bxor(vb[2], vc), bxor(vb[3], vc));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb) && ttisvector(rc))
+                {
+                    const float* vb = rb->value.v;
+                    const float* vc = rc->value.v;
+                    setvvalue(ra, bxor(vb[0], vc[0]), bxor(vb[1], vc[1]), bxor(vb[2], vc[2]), bxor(vb[3], vc[3]));
+                    VM_NEXT();
+                }
+                else if (ttisnumber(rb) && ttisvector(rc))
+                {
+                    float vb = cast_to(float, nvalue(rb));
+                    const float* vc = rc->value.v;
+                    setvvalue(ra, bxor(vb, vc[0]), bxor(vb, vc[1]), bxor(vb, vc[2]), bxor(vb, vc[3]));
+                    VM_NEXT();
+                }
+                else
+                {
+                    // fast-path for userdata with C functions
+                    StkId rbc = ttisnumber(rb) ? rc : rb;
+                    const TValue* fn = 0;
+                    if (ttisuserdata(rbc) && (fn = luaT_gettmbyobj(L, rbc, TM_BXOR)) && ttisfunction(fn) && clvalue(fn)->isC)
+                    {
+                        // note: it's safe to push arguments past top for complicated reasons (see top of the file)
+                        LUAU_ASSERT(L->top + 3 < L->stack + L->stacksize);
+                        StkId top = L->top;
+                        setobj2s(L, top + 0, fn);
+                        setobj2s(L, top + 1, rb);
+                        setobj2s(L, top + 2, rc);
+                        L->top = top + 3;
+
+                        VM_PROTECT(luau_callTM(L, 2, LUAU_INSN_A(insn)));
+                        VM_NEXT();
+                    }
+                    else
+                    {
+                        // slow-path, may invoke C/Lua via metamethods
+                        VM_PROTECT(luaV_doarith(L, ra, rb, rc, TM_BXOR));
+                        VM_NEXT();
+                    }
+                }
+            }
+
+            VM_CASE(LOP_SHR)
+            {
+                Instruction insn = *pc++;
+                StkId ra = VM_REG(LUAU_INSN_A(insn));
+                StkId rb = VM_REG(LUAU_INSN_B(insn));
+                StkId rc = VM_REG(LUAU_INSN_C(insn));
+
+                // fast-path
+                if (ttisnumber(rb) && ttisnumber(rc))
+                {
+                    setnvalue(ra, rshift(nvalue(rb), nvalue(rc)));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb) && ttisnumber(rc))
+                {
+                    const float* vb = rb->value.v;
+                    float vc = cast_to(float, nvalue(rc));
+                    setvvalue(ra, rshift(vb[0], vc), rshift(vb[1], vc), rshift(vb[2], vc), rshift(vb[3], vc));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb) && ttisvector(rc))
+                {
+                    const float* vb = rb->value.v;
+                    const float* vc = rc->value.v;
+                    setvvalue(ra, rshift(vb[0], vc[0]), rshift(vb[1], vc[1]), rshift(vb[2], vc[2]), rshift(vb[3], vc[3]));
+                    VM_NEXT();
+                }
+                else if (ttisnumber(rb) && ttisvector(rc))
+                {
+                    float vb = cast_to(float, nvalue(rb));
+                    const float* vc = rc->value.v;
+                    setvvalue(ra, rshift(vb, vc[0]), rshift(vb, vc[1]), rshift(vb, vc[2]), rshift(vb, vc[3]));
+                    VM_NEXT();
+                }
+                else
+                {
+                    // fast-path for userdata with C functions
+                    StkId rbc = ttisnumber(rb) ? rc : rb;
+                    const TValue* fn = 0;
+                    if (ttisuserdata(rbc) && (fn = luaT_gettmbyobj(L, rbc, TM_SHR)) && ttisfunction(fn) && clvalue(fn)->isC)
+                    {
+                        // note: it's safe to push arguments past top for complicated reasons (see top of the file)
+                        LUAU_ASSERT(L->top + 3 < L->stack + L->stacksize);
+                        StkId top = L->top;
+                        setobj2s(L, top + 0, fn);
+                        setobj2s(L, top + 1, rb);
+                        setobj2s(L, top + 2, rc);
+                        L->top = top + 3;
+
+                        VM_PROTECT(luau_callTM(L, 2, LUAU_INSN_A(insn)));
+                        VM_NEXT();
+                    }
+                    else
+                    {
+                        // slow-path, may invoke C/Lua via metamethods
+                        VM_PROTECT(luaV_doarith(L, ra, rb, rc, TM_SHR));
+                        VM_NEXT();
+                    }
+                }
+            }
+
+            VM_CASE(LOP_SHL)
+            {
+                Instruction insn = *pc++;
+                StkId ra = VM_REG(LUAU_INSN_A(insn));
+                StkId rb = VM_REG(LUAU_INSN_B(insn));
+                StkId rc = VM_REG(LUAU_INSN_C(insn));
+
+                // fast-path
+                if (ttisnumber(rb) && ttisnumber(rc))
+                {
+                    setnvalue(ra, lshift(nvalue(rb), nvalue(rc)));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb) && ttisnumber(rc))
+                {
+                    const float* vb = rb->value.v;
+                    float vc = cast_to(float, nvalue(rc));
+                    setvvalue(ra, lshift(vb[0], vc), lshift(vb[1], vc), lshift(vb[2], vc), lshift(vb[3], vc));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb) && ttisvector(rc))
+                {
+                    const float* vb = rb->value.v;
+                    const float* vc = rc->value.v;
+                    setvvalue(ra, lshift(vb[0], vc[0]), lshift(vb[1], vc[1]), lshift(vb[2], vc[2]), lshift(vb[3], vc[3]));
+                    VM_NEXT();
+                }
+                else if (ttisnumber(rb) && ttisvector(rc))
+                {
+                    float vb = cast_to(float, nvalue(rb));
+                    const float* vc = rc->value.v;
+                    setvvalue(ra, lshift(vb, vc[0]), lshift(vb, vc[1]), lshift(vb, vc[2]), lshift(vb, vc[3]));
+                    VM_NEXT();
+                }
+                else
+                {
+                    // fast-path for userdata with C functions
+                    StkId rbc = ttisnumber(rb) ? rc : rb;
+                    const TValue* fn = 0;
+                    if (ttisuserdata(rbc) && (fn = luaT_gettmbyobj(L, rbc, TM_SHL)) && ttisfunction(fn) && clvalue(fn)->isC)
+                    {
+                        // note: it's safe to push arguments past top for complicated reasons (see top of the file)
+                        LUAU_ASSERT(L->top + 3 < L->stack + L->stacksize);
+                        StkId top = L->top;
+                        setobj2s(L, top + 0, fn);
+                        setobj2s(L, top + 1, rb);
+                        setobj2s(L, top + 2, rc);
+                        L->top = top + 3;
+
+                        VM_PROTECT(luau_callTM(L, 2, LUAU_INSN_A(insn)));
+                        VM_NEXT();
+                    }
+                    else
+                    {
+                        // slow-path, may invoke C/Lua via metamethods
+                        VM_PROTECT(luaV_doarith(L, ra, rb, rc, TM_SHL));
+                        VM_NEXT();
+                    }
                 }
             }
 
@@ -1907,6 +2296,52 @@ static void luau_execute(lua_State* L)
                 }
             }
 
+            VM_CASE(LOP_IDIVK)
+            {
+                Instruction insn = *pc++;
+                StkId ra = VM_REG(LUAU_INSN_A(insn));
+                StkId rb = VM_REG(LUAU_INSN_B(insn));
+                TValue* kv = VM_KV(LUAU_INSN_C(insn));
+
+                // fast-path
+                if (ttisnumber(rb))
+                {
+                    setnvalue(ra, floor(nvalue(rb) / nvalue(kv)));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb))
+                {
+                    const float* vb = rb->value.v;
+                    float vc = cast_to(float, nvalue(kv));
+                    setvvalue(ra, floor(vb[0] / vc), floor(vb[1] / vc), floor(vb[2] / vc), floor(vb[3] / vc));
+                    VM_NEXT();
+                }
+                else
+                {
+                    // fast-path for userdata with C functions
+                    const TValue* fn = 0;
+                    if (ttisuserdata(rb) && (fn = luaT_gettmbyobj(L, rb, TM_IDIV)) && ttisfunction(fn) && clvalue(fn)->isC)
+                    {
+                        // note: it's safe to push arguments past top for complicated reasons (see top of the file)
+                        LUAU_ASSERT(L->top + 3 < L->stack + L->stacksize);
+                        StkId top = L->top;
+                        setobj2s(L, top + 0, fn);
+                        setobj2s(L, top + 1, rb);
+                        setobj2s(L, top + 2, kv);
+                        L->top = top + 3;
+
+                        VM_PROTECT(luau_callTM(L, 2, LUAU_INSN_A(insn)));
+                        VM_NEXT();
+                    }
+                    else
+                    {
+                        // slow-path, may invoke C/Lua via metamethods
+                        VM_PROTECT(luaV_doarith(L, ra, rb, kv, TM_IDIV));
+                        VM_NEXT();
+                    }
+                }
+            }
+
             VM_CASE(LOP_MODK)
             {
                 Instruction insn = *pc++;
@@ -1924,9 +2359,27 @@ static void luau_execute(lua_State* L)
                 }
                 else
                 {
-                    // slow-path, may invoke C/Lua via metamethods
-                    VM_PROTECT(luaV_doarith(L, ra, rb, kv, TM_MOD));
-                    VM_NEXT();
+                    // fast-path for userdata with C functions
+                    const TValue* fn = 0;
+                    if (ttisuserdata(rb) && (fn = luaT_gettmbyobj(L, rb, TM_MOD)) && ttisfunction(fn) && clvalue(fn)->isC)
+                    {
+                        // note: it's safe to push arguments past top for complicated reasons (see top of the file)
+                        LUAU_ASSERT(L->top + 3 < L->stack + L->stacksize);
+                        StkId top = L->top;
+                        setobj2s(L, top + 0, fn);
+                        setobj2s(L, top + 1, rb);
+                        setobj2s(L, top + 2, kv);
+                        L->top = top + 3;
+
+                        VM_PROTECT(luau_callTM(L, 2, LUAU_INSN_A(insn)));
+                        VM_NEXT();
+                    }
+                    else
+                    {
+                        // slow-path, may invoke C/Lua via metamethods
+                        VM_PROTECT(luaV_doarith(L, ra, rb, kv, TM_MOD));
+                        VM_NEXT();
+                    }
                 }
             }
 
@@ -1949,11 +2402,267 @@ static void luau_execute(lua_State* L)
                     setnvalue(ra, r);
                     VM_NEXT();
                 }
+                else if (ttisvector(rb))
+                {
+                    const float* vb = rb->value.v;
+                    float vc = cast_to(float, nvalue(kv));
+                    double r1 = (vc == 2.0) ? vb[0] * vb[0] : (vc == 0.5) ? sqrt(vb[0]) : (vc == 3.0) ? vb[0] * vb[0] * vb[0] : pow(vb[0], vc);
+                    double r2 = (vc == 2.0) ? vb[1] * vb[1] : (vc == 0.5) ? sqrt(vb[1]) : (vc == 3.0) ? vb[1] * vb[1] * vb[1] : pow(vb[1], vc);
+                    double r3 = (vc == 2.0) ? vb[2] * vb[2] : (vc == 0.5) ? sqrt(vb[2]) : (vc == 3.0) ? vb[2] * vb[2] * vb[2] : pow(vb[2], vc);
+                    double r4 = (vc == 2.0) ? vb[3] * vb[3] : (vc == 0.5) ? sqrt(vb[3]) : (vc == 3.0) ? vb[3] * vb[3] * vb[3] : pow(vb[3], vc);
+                    setvvalue(ra, r1, r2, r3, r4);
+                    VM_NEXT();
+                }
                 else
                 {
                     // slow-path, may invoke C/Lua via metamethods
                     VM_PROTECT(luaV_doarith(L, ra, rb, kv, TM_POW));
                     VM_NEXT();
+                }
+            }
+
+            VM_CASE(LOP_BANDK)
+            {
+                Instruction insn = *pc++;
+                StkId ra = VM_REG(LUAU_INSN_A(insn));
+                StkId rb = VM_REG(LUAU_INSN_B(insn));
+                TValue* kv = VM_KV(LUAU_INSN_C(insn));
+
+                // fast-path
+                if (ttisnumber(rb))
+                {
+                    double nb = nvalue(rb);
+                    double nk = nvalue(kv);
+
+                    setnvalue(ra, band(nb, nk));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb))
+                {
+                    const float* vb = rb->value.v;
+                    float vc = cast_to(float, nvalue(kv));
+                    setvvalue(ra, band(vb[0], vc), band(vb[1], vc), band(vb[2], vc), band(vb[3], vc));
+                    VM_NEXT();
+                }
+                else
+                {
+                    // fast-path for userdata with C functions
+                    const TValue* fn = 0;
+                    if (ttisuserdata(rb) && (fn = luaT_gettmbyobj(L, rb, TM_BAND)) && ttisfunction(fn) && clvalue(fn)->isC)
+                    {
+                        // note: it's safe to push arguments past top for complicated reasons (see top of the file)
+                        LUAU_ASSERT(L->top + 3 < L->stack + L->stacksize);
+                        StkId top = L->top;
+                        setobj2s(L, top + 0, fn);
+                        setobj2s(L, top + 1, rb);
+                        setobj2s(L, top + 2, kv);
+                        L->top = top + 3;
+
+                        VM_PROTECT(luau_callTM(L, 2, LUAU_INSN_A(insn)));
+                        VM_NEXT();
+                    }
+                    else
+                    {
+                        // slow-path, may invoke C/Lua via metamethods
+                        VM_PROTECT(luaV_doarith(L, ra, rb, kv, TM_BAND));
+                        VM_NEXT();
+                    }
+                }
+            }
+
+            VM_CASE(LOP_BORK)
+            {
+                Instruction insn = *pc++;
+                StkId ra = VM_REG(LUAU_INSN_A(insn));
+                StkId rb = VM_REG(LUAU_INSN_B(insn));
+                TValue* kv = VM_KV(LUAU_INSN_C(insn));
+
+                // fast-path
+                if (ttisnumber(rb))
+                {
+                    double nb = nvalue(rb);
+                    double nk = nvalue(kv);
+
+                    setnvalue(ra, bor(nb, nk));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb))
+                {
+                    const float* vb = rb->value.v;
+                    float vc = cast_to(float, nvalue(kv));
+                    setvvalue(ra, bor(vb[0], vc), bor(vb[1], vc), bor(vb[2], vc), bor(vb[3], vc));
+                    VM_NEXT();
+                }
+                else
+                {
+                    // fast-path for userdata with C functions
+                    const TValue* fn = 0;
+                    if (ttisuserdata(rb) && (fn = luaT_gettmbyobj(L, rb, TM_BOR)) && ttisfunction(fn) && clvalue(fn)->isC)
+                    {
+                        // note: it's safe to push arguments past top for complicated reasons (see top of the file)
+                        LUAU_ASSERT(L->top + 3 < L->stack + L->stacksize);
+                        StkId top = L->top;
+                        setobj2s(L, top + 0, fn);
+                        setobj2s(L, top + 1, rb);
+                        setobj2s(L, top + 2, kv);
+                        L->top = top + 3;
+
+                        VM_PROTECT(luau_callTM(L, 2, LUAU_INSN_A(insn)));
+                        VM_NEXT();
+                    }
+                    else
+                    {
+                        // slow-path, may invoke C/Lua via metamethods
+                        VM_PROTECT(luaV_doarith(L, ra, rb, kv, TM_BOR));
+                        VM_NEXT();
+                    }
+                }
+            }
+
+            VM_CASE(LOP_BXORK)
+            {
+                Instruction insn = *pc++;
+                StkId ra = VM_REG(LUAU_INSN_A(insn));
+                StkId rb = VM_REG(LUAU_INSN_B(insn));
+                TValue* kv = VM_KV(LUAU_INSN_C(insn));
+
+                // fast-path
+                if (ttisnumber(rb))
+                {
+                    double nb = nvalue(rb);
+                    double nk = nvalue(kv);
+
+                    setnvalue(ra, bxor(nb, nk));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb))
+                {
+                    const float* vb = rb->value.v;
+                    float vc = cast_to(float, nvalue(kv));
+                    setvvalue(ra, bxor(vb[0], vc), bxor(vb[1], vc), bxor(vb[2], vc), bxor(vb[3], vc));
+                    VM_NEXT();
+                }
+                else
+                {
+                    // fast-path for userdata with C functions
+                    const TValue* fn = 0;
+                    if (ttisuserdata(rb) && (fn = luaT_gettmbyobj(L, rb, TM_BXOR)) && ttisfunction(fn) && clvalue(fn)->isC)
+                    {
+                        // note: it's safe to push arguments past top for complicated reasons (see top of the file)
+                        LUAU_ASSERT(L->top + 3 < L->stack + L->stacksize);
+                        StkId top = L->top;
+                        setobj2s(L, top + 0, fn);
+                        setobj2s(L, top + 1, rb);
+                        setobj2s(L, top + 2, kv);
+                        L->top = top + 3;
+
+                        VM_PROTECT(luau_callTM(L, 2, LUAU_INSN_A(insn)));
+                        VM_NEXT();
+                    }
+                    else
+                    {
+                        // slow-path, may invoke C/Lua via metamethods
+                        VM_PROTECT(luaV_doarith(L, ra, rb, kv, TM_BXOR));
+                        VM_NEXT();
+                    }
+                }
+            }
+
+            VM_CASE(LOP_SHRK)
+            {
+                Instruction insn = *pc++;
+                StkId ra = VM_REG(LUAU_INSN_A(insn));
+                StkId rb = VM_REG(LUAU_INSN_B(insn));
+                TValue* kv = VM_KV(LUAU_INSN_C(insn));
+
+                // fast-path
+                if (ttisnumber(rb))
+                {
+                    double nb = nvalue(rb);
+                    double nk = nvalue(kv);
+
+                    setnvalue(ra, rshift(nb, nk));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb))
+                {
+                    const float* vb = rb->value.v;
+                    float vc = cast_to(float, nvalue(kv));
+                    setvvalue(ra, rshift(vb[0], vc), rshift(vb[1], vc), rshift(vb[2], vc), rshift(vb[3], vc));
+                    VM_NEXT();
+                }
+                else
+                {
+                    // fast-path for userdata with C functions
+                    const TValue* fn = 0;
+                    if (ttisuserdata(rb) && (fn = luaT_gettmbyobj(L, rb, TM_SHR)) && ttisfunction(fn) && clvalue(fn)->isC)
+                    {
+                        // note: it's safe to push arguments past top for complicated reasons (see top of the file)
+                        LUAU_ASSERT(L->top + 3 < L->stack + L->stacksize);
+                        StkId top = L->top;
+                        setobj2s(L, top + 0, fn);
+                        setobj2s(L, top + 1, rb);
+                        setobj2s(L, top + 2, kv);
+                        L->top = top + 3;
+
+                        VM_PROTECT(luau_callTM(L, 2, LUAU_INSN_A(insn)));
+                        VM_NEXT();
+                    }
+                    else
+                    {
+                        // slow-path, may invoke C/Lua via metamethods
+                        VM_PROTECT(luaV_doarith(L, ra, rb, kv, TM_SHR));
+                        VM_NEXT();
+                    }
+                }
+            }
+
+            VM_CASE(LOP_SHLK)
+            {
+                Instruction insn = *pc++;
+                StkId ra = VM_REG(LUAU_INSN_A(insn));
+                StkId rb = VM_REG(LUAU_INSN_B(insn));
+                TValue* kv = VM_KV(LUAU_INSN_C(insn));
+
+                // fast-path
+                if (ttisnumber(rb))
+                {
+                    double nb = nvalue(rb);
+                    double nk = nvalue(kv);
+
+                    setnvalue(ra, lshift(nb, nk));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb))
+                {
+                    const float* vb = rb->value.v;
+                    float vc = cast_to(float, nvalue(kv));
+                    setvvalue(ra, lshift(vb[0], vc), lshift(vb[1], vc), lshift(vb[2], vc), lshift(vb[3], vc));
+                    VM_NEXT();
+                }
+                else
+                {
+                    // fast-path for userdata with C functions
+                    const TValue* fn = 0;
+                    if (ttisuserdata(rb) && (fn = luaT_gettmbyobj(L, rb, TM_SHL)) && ttisfunction(fn) && clvalue(fn)->isC)
+                    {
+                        // note: it's safe to push arguments past top for complicated reasons (see top of the file)
+                        LUAU_ASSERT(L->top + 3 < L->stack + L->stacksize);
+                        StkId top = L->top;
+                        setobj2s(L, top + 0, fn);
+                        setobj2s(L, top + 1, rb);
+                        setobj2s(L, top + 2, kv);
+                        L->top = top + 3;
+
+                        VM_PROTECT(luau_callTM(L, 2, LUAU_INSN_A(insn)));
+                        VM_NEXT();
+                    }
+                    else
+                    {
+                        // slow-path, may invoke C/Lua via metamethods
+                        VM_PROTECT(luaV_doarith(L, ra, rb, kv, TM_SHL));
+                        VM_NEXT();
+                    }
                 }
             }
 
@@ -2094,6 +2803,49 @@ static void luau_execute(lua_State* L)
                     // slow-path, may invoke C/Lua via metamethods
                     VM_PROTECT(luaV_dolen(L, ra, rb));
                     VM_NEXT();
+                }
+            }
+
+            VM_CASE(LOP_BNOT)
+            {
+                Instruction insn = *pc++;
+                StkId ra = VM_REG(LUAU_INSN_A(insn));
+                StkId rb = VM_REG(LUAU_INSN_B(insn));
+
+                // fast-path
+                if (ttisnumber(rb))
+                {
+                    setnvalue(ra, bnot(nvalue(rb)));
+                    VM_NEXT();
+                }
+                else if (ttisvector(rb))
+                {
+                    const float* vb = rb->value.v;
+                    setvvalue(ra, bnot(vb[0]), bnot(vb[1]), bnot(vb[2]), bnot(vb[3]));
+                    VM_NEXT();
+                }
+                else
+                {
+                    // fast-path for userdata with C functions
+                    const TValue* fn = 0;
+                    if (ttisuserdata(rb) && (fn = luaT_gettmbyobj(L, rb, TM_BNOT)) && ttisfunction(fn) && clvalue(fn)->isC)
+                    {
+                        // note: it's safe to push arguments past top for complicated reasons (see top of the file)
+                        LUAU_ASSERT(L->top + 2 < L->stack + L->stacksize);
+                        StkId top = L->top;
+                        setobj2s(L, top + 0, fn);
+                        setobj2s(L, top + 1, rb);
+                        L->top = top + 2;
+
+                        VM_PROTECT(luau_callTM(L, 1, LUAU_INSN_A(insn)));
+                        VM_NEXT();
+                    }
+                    else
+                    {
+                        // slow-path, may invoke C/Lua via metamethods
+                        VM_PROTECT(luaV_doarith(L, ra, rb, rb, TM_BNOT));
+                        VM_NEXT();
+                    }
                 }
             }
 

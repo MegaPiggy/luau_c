@@ -632,7 +632,8 @@ public:
     {
         Not,
         Minus,
-        Len
+        Len,
+        Bnot
     };
 
     AstExprUnary(const Location& location, Op op, AstExpr* expr);
@@ -656,7 +657,13 @@ public:
         Sub,
         Mul,
         Div,
+        IDiv,
         Mod,
+        Band,
+        Bor,
+        Bxor,
+        Shr,
+        Shl,
         Pow,
         Concat,
         CompareNe,

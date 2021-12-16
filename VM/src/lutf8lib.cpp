@@ -4,6 +4,9 @@
 
 #include "lcommon.h"
 
+#include <boost/multiprecision/cpp_int.hpp>
+#include "lboost.h"
+
 #define MAXUNICODE 0x10FFFF
 
 #define iscont(p) ((*(p)&0xC0) == 0x80)
@@ -190,7 +193,7 @@ static int byteoffset(lua_State* L)
 {
     size_t len;
     const char* s = luaL_checklstring(L, 1, &len);
-    int n = luaL_checkinteger(L, 2);
+    boost::multiprecision::int1024_t n = luaL_checkint1024(L, 2);
     int posi = (n >= 0) ? 1 : (int)len + 1;
     posi = u_posrelat(luaL_optinteger(L, 3, posi), len);
     luaL_argcheck(L, 1 <= posi && --posi <= (int)len, 3, "position out of range");

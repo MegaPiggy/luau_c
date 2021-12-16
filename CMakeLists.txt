@@ -4,7 +4,7 @@ if(EXT_PLATFORM_STRING)
     return()
 endif()
 
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.22.0)
 project(Luau LANGUAGES CXX)
 
 option(LUAU_BUILD_CLI "Build CLI" ON)
@@ -38,7 +38,28 @@ endif()
 include(Sources.cmake)
 
 include(FetchContent)
-FetchContent_Declare(cpr GIT_REPOSITORY https://github.com/libcpr/cpr.git GIT_TAG 67e12da316754ff3c6c91b50aafb2658438f3c1e) # the commit hash for 1.7.0
+set(Boost_USE_STATIC_LIBS OFF )
+set(Boost_USE_MULTITHREADED ON)
+set(Boost_USE_STATIC_RUNTIME OFF)
+set(Boost_DEBUG ON)
+if(UNIX)
+    set(BOOST_URL https://boostorg.jfrog.io/artifactory/main/release/1.77.0/source/boost_1_77_0.tar.gz)
+    set(BOOST_URL_SHA256 5347464af5b14ac54bb945dc68f1dd7c56f0dad7262816b956138fc53bcc0131) # the commit hash for 1.78.0
+elseif (WIN32)
+    set(BOOST_URL https://boostorg.jfrog.io/artifactory/main/release/1.77.0/source/boost_1_77_0.zip)
+    set(BOOST_URL_SHA256 d2886ceff60c35fc6dc9120e8faa960c1e9535f2d7ce447469eae9836110ea77) # the commit hash for 1.78.0
+endif()
+add_subdirectory(boost-cmake)
+if (WIN32)
+    add_definitions( -DBOOST_ALL_NO_LIB )
+    add_definitions( -DBOOST_ALL_DYN_LINK )
+endif()
+target_link_libraries(Luau.VM PRIVATE Boost::boost)
+
+FetchContent_Declare(cpr
+                     GIT_REPOSITORY        https://github.com/libcpr/cpr.git
+                     GIT_TAG               67e12da316754ff3c6c91b50aafb2658438f3c1e # the commit hash for 1.7.0
+                    )
 set(CPR_BUILD_TESTS OFF CACHE INTERNAL "" FORCE)
 FetchContent_MakeAvailable(cpr)
 target_link_libraries(Luau.VM PRIVATE cpr::cpr)

@@ -724,6 +724,20 @@ static int str_trim(lua_State* L)
     return str_find_aux(L, 0);
 }
 
+static int str_trimstart(lua_State* L)
+{
+    lua_settop(L, 1);
+    lua_pushliteral(L, "^%s*(.-)");
+    return str_find_aux(L, 0);
+}
+
+static int str_trimend(lua_State* L)
+{
+    lua_settop(L, 1);
+    lua_pushliteral(L, "(.-)%s*$"); // "^(.*%S)%s*$"
+    return str_find_aux(L, 0);
+}
+
 static int gmatch_aux(lua_State* L)
 {
     MatchState ms;
@@ -1641,11 +1655,94 @@ static int str_index(lua_State* L)
     return 1;
 }
 
+static bool isPartOf(const char* w1, const char* w2)
+{
+    int i=0;
+    int j=0;
+
+    while(w1[i]!='\0'){
+        if(w1[i] == w2[j])
+        {
+            int init = i;
+            while (w1[i] == w2[j] && w2[j]!='\0')
+            {
+                j++;
+                i++;
+            }
+            if(w2[j]=='\0'){
+                return true;
+            }
+            j=0;
+        }
+        i++;
+    }
+    return false;
+}
+
+static int str_contains(lua_State* L)
+{
+    const char* self = luaL_checkstring(L, 1);
+    const char* part = luaL_checkstring(L, 2);
+    lua_pushboolean(L, isPartOf(self, part));
+    return 1;
+}
+
+static int str_startsWith(lua_State* L)
+{
+    const char* self = luaL_checkstring(L, 1);
+    size_t l;
+    const char* part = luaL_checklstring(L, 2, &l);
+    lua_pushboolean(L, strncmp(self, part, l) == 0);
+    return 1;
+}
+
+static int str_endsWith(lua_State* L)
+{
+    size_t sl;
+    const char* self = luaL_checklstring(L, 1, &sl);
+    size_t pl;
+    const char* part = luaL_checklstring(L, 2, &pl);
+
+    size_t cmpAt = sl - pl;
+    if (cmpAt < (size_t)0)
+        lua_pushboolean(L, false);
+    else
+        lua_pushboolean(L, strcmp(self + cmpAt, part) == 0);
+
+    return 1;
+}
+
+static int str_type(lua_State* L)
+{
+    size_t l;
+    const char* s = luaL_checklstring(L, 1, &l);
+    if (l != 1){
+        luaL_argerror(L, 1, "must be one letter long");
+        return 0;
+    }
+
+    char c = s[0];
+
+    // show error message if c is not an alphabet
+    if (!isalpha(c)){
+        luaL_argerror(L, 1, "non-alphabetic character");
+        return 0;
+    }
+    else if ((c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u') || (c == 'A' || c == 'E' || c == 'I' || c == 'O' || c == 'U'))
+        lua_pushliteral(L, "vowel");
+    else
+        lua_pushliteral(L, "consonant");
+
+    return 1;
+}
+
 /* }====================================================== */
 
 static const luaL_Reg strlib[] = {
     {"byte", str_byte},
     {"char", str_char},
+    {"contains", str_contains},
+    {"endsWith", str_endsWith},
     {"find", str_find},
     {"format", str_format},
     {"gmatch", gmatch},
@@ -1659,9 +1756,13 @@ static const luaL_Reg strlib[] = {
     {"sub", str_sub},
     {"upper", str_upper},
     {"split", str_split},
+    {"startsWith", str_startsWith},
     {"pack", str_pack},
     {"packsize", str_packsize},
     {"trim", str_trim},
+    {"ltrim", str_trimstart},
+    {"rtrim", str_trimend},
+    {"type", str_type},
     {"unpack", str_unpack},
     {NULL, NULL},
 };

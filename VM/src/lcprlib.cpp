@@ -7,6 +7,9 @@
 #include "lstate.h"
 #include <cpr/cpr.h>
 
+#include <boost/multiprecision/cpp_int.hpp>
+#include "lboost.h"
+
 #undef strdup
 #define strdup _strdup
 
@@ -272,6 +275,28 @@ static void setfield(lua_State* L, const char* key, long long value)
     lua_setfield(L, -2, key);
 }
 
+static boost::multiprecision::int1024_t getfield(lua_State* L, const char* key, boost::multiprecision::int1024_t d)
+{
+    boost::multiprecision::int1024_t res;
+    lua_rawgetfield(L, -1, key);
+    if (lua_isnumber(L, -1))
+        res = (boost::multiprecision::int1024_t)lua_toint1024(L, -1);
+    else
+    {
+        if (d < 0)
+            luaL_error(L, "field '%s' missing in table", key);
+        res = d;
+    }
+    lua_pop(L, 1);
+    return res;
+}
+
+static void setfield(lua_State* L, const char* key, boost::multiprecision::int1024_t value)
+{
+    lua_pushint1024(L, value);
+    lua_setfield(L, -2, key);
+}
+
 static double getfield(lua_State* L, const char* key, double d)
 {
     double res;
@@ -396,7 +421,7 @@ static cpr::Parameters getParametersFromArgs(lua_State* L, int idx)
             continue;
         }
         
-        int k = (int)lua_tointeger(L, -2);
+        boost::multiprecision::int1024_t k = (boost::multiprecision::int1024_t)lua_toint1024(L, -2);
 
         // key is at -2 on the stack, value at -1. We need to pop the value, 
         // but leave the key on the stack so that lua_next knows where to 
@@ -413,7 +438,7 @@ static cpr::Parameters getParametersFromArgs(lua_State* L, int idx)
 
         // pop the value when you're done with it 
         lua_pop(L, 2);
-        lua_pushinteger(L, k);
+        lua_pushint1024(L, k);
     }
     return parameters;
 }
@@ -436,7 +461,7 @@ static cpr::Header getHeaderFromArgs(lua_State* L, int idx)
             continue;
         }
 
-        int k = (int)lua_tointeger(L, -2);
+        boost::multiprecision::int1024_t k = (boost::multiprecision::int1024_t)lua_toint1024(L, -2);
 
         // key is at -2 on the stack, value at -1. We need to pop the value, 
         // but leave the key on the stack so that lua_next knows where to 
@@ -453,7 +478,7 @@ static cpr::Header getHeaderFromArgs(lua_State* L, int idx)
 
         // pop the value when you're done with it 
         lua_pop(L, 2);
-        lua_pushinteger(L, k);
+        lua_pushint1024(L, k);
     }
     return header;
 }
@@ -476,7 +501,7 @@ static cpr::Payload getPayloadFromArgs(lua_State* L, int idx)
             continue;
         }
 
-        int k = (int)lua_tointeger(L, -2);
+        boost::multiprecision::int1024_t k = (boost::multiprecision::int1024_t)lua_toint1024(L, -2);
 
         // key is at -2 on the stack, value at -1. We need to pop the value, 
         // but leave the key on the stack so that lua_next knows where to 
@@ -493,7 +518,7 @@ static cpr::Payload getPayloadFromArgs(lua_State* L, int idx)
 
         // pop the value when you're done with it 
         lua_pop(L, 2);
-        lua_pushinteger(L, k);
+        lua_pushint1024(L, k);
     }
     return payload;
 }
@@ -516,7 +541,7 @@ static cpr::Multipart getMultipartFromArgs(lua_State* L, int idx)
             continue;
         }
 
-        int k = (int)lua_tointeger(L, -2);
+        boost::multiprecision::int1024_t k = (boost::multiprecision::int1024_t)lua_toint1024(L, -2);
 
         // key is at -2 on the stack, value at -1. We need to pop the value, 
         // but leave the key on the stack so that lua_next knows where to 
@@ -540,7 +565,7 @@ static cpr::Multipart getMultipartFromArgs(lua_State* L, int idx)
 
         // pop the value when you're done with it 
         lua_pop(L, 2);
-        lua_pushinteger(L, k);
+        lua_pushint1024(L, k);
     }
     return multipart;
 }

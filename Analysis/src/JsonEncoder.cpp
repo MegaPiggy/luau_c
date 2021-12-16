@@ -397,6 +397,8 @@ struct AstJsonEncoder : public AstVisitor
             return writeString("minus");
         case AstExprUnary::Len:
             return writeString("len");
+        case AstExprUnary::Bnot:
+            return writeString("bnot");
         }
     }
 
@@ -424,6 +426,18 @@ struct AstJsonEncoder : public AstVisitor
             return writeString("Mod");
         case AstExprBinary::Pow:
             return writeString("Pow");
+        case AstExprBinary::IDiv:
+            return writeString("IDiv");
+        case AstExprBinary::Band:
+            return writeString("Band");
+        case AstExprBinary::Bor:
+            return writeString("Bor");
+        case AstExprBinary::Bxor:
+            return writeString("Bxor");
+        case AstExprBinary::Shr:
+            return writeString("Shr");
+        case AstExprBinary::Shl:
+            return writeString("Shl");
         case AstExprBinary::Concat:
             return writeString("Concat");
         case AstExprBinary::CompareNe:

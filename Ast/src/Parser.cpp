@@ -985,7 +985,7 @@ AstStat* Parser::parseCompoundAssignment(AstExpr* initial, AstExprBinary::Op op)
     nextLexeme();
 
     AstExpr* value = parseExpr();
-
+    
     return allocator.alloc<AstStatCompoundAssign>(Location(initial->location, value->location), op, initial, value);
 }
 
@@ -1699,6 +1699,8 @@ std::optional<AstExprUnary::Op> Parser::parseUnaryOp(const Lexeme& l)
         return AstExprUnary::Minus;
     else if (l.type == '#')
         return AstExprUnary::Len;
+    else if (l.type == '~')
+        return AstExprUnary::Bnot;
     else
         return std::nullopt;
 }
@@ -1713,10 +1715,22 @@ std::optional<AstExprBinary::Op> Parser::parseBinaryOp(const Lexeme& l)
         return AstExprBinary::Mul;
     else if (l.type == '/')
         return AstExprBinary::Div;
+    else if (l.type == Lexeme::IDiv)
+        return AstExprBinary::IDiv;
     else if (l.type == '%')
         return AstExprBinary::Mod;
     else if (l.type == '^')
         return AstExprBinary::Pow;
+    else if (l.type == '&')
+        return AstExprBinary::Band;
+    else if (l.type == '|')
+        return AstExprBinary::Bor;
+    else if (l.type == '~')
+        return AstExprBinary::Bxor;
+    else if (l.type == Lexeme::Shr)
+        return AstExprBinary::Shr;
+    else if (l.type == Lexeme::Shl)
+        return AstExprBinary::Shl;
     else if (l.type == Lexeme::Dot2)
         return AstExprBinary::Concat;
     else if (l.type == Lexeme::NotEqual)
@@ -1753,6 +1767,18 @@ std::optional<AstExprBinary::Op> Parser::parseCompoundOp(const Lexeme& l)
         return AstExprBinary::Mod;
     else if (l.type == Lexeme::PowAssign)
         return AstExprBinary::Pow;
+    else if (l.type == Lexeme::IDivAssign)
+        return AstExprBinary::IDiv;
+    else if (l.type == Lexeme::BandAssign)
+        return AstExprBinary::Band;
+    else if (l.type == Lexeme::BorAssign)
+        return AstExprBinary::Bor;
+    else if (l.type == Lexeme::BxorAssign)
+        return AstExprBinary::Bxor;
+    else if (l.type == Lexeme::ShrAssign)
+        return AstExprBinary::Shr;
+    else if (l.type == Lexeme::ShlAssign)
+        return AstExprBinary::Shl;
     else if (l.type == Lexeme::ConcatAssign)
         return AstExprBinary::Concat;
     else
@@ -1819,8 +1845,10 @@ std::optional<AstExprBinary::Op> Parser::checkBinaryConfusables(const BinaryOpPr
 AstExpr* Parser::parseExpr(unsigned int limit)
 {
     static const BinaryOpPriority binaryPriority[] = {
-        {6, 6}, {6, 6}, {7, 7}, {7, 7}, {7, 7}, // `+' `-' `*' `/' `%'
-        {10, 9}, {5, 4},                        // power and concat (right associative)
+        {10, 10}, {10, 10}, {11, 11}, {11, 11}, {11, 11}, {11, 11}, // `+' `-' `*' `/' `%' `//'
+        {6, 6}, {4, 4}, {5, 5}, // `&' `|' `~'
+        {7, 7}, {7, 7}, // `>>' `<<'
+        {14, 13}, {9, 8},                        // power and concat (right associative)
         {3, 3}, {3, 3},                         // equality and inequality
         {3, 3}, {3, 3}, {3, 3}, {3, 3},         // order
         {2, 2}, {1, 1}                          // logical (and/or)

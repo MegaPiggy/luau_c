@@ -4,24 +4,23 @@
 #include <string>
 #include <map>
 #include <tuple>
+#include <time.h>
+#include <chrono>
 
-#define ALLONES ~0u
-#define NBITS int(8 * sizeof(unsigned))
+#include "lbit.h"
 
-/* macro to trim extra bits */
-#define trim(x) ((x)&ALLONES)
-
-/* builds a number with 'n' ones (1 <= n <= NBITS) */
-#define mask(n) (~((ALLONES << 1) << ((n)-1)))
+typedef std::chrono::high_resolution_clock Clock;
+#define tonanoseconds(v) std::chrono::duration_cast<std::chrono::nanoseconds>(v);
+#define compare(start, end) ((std::chrono::nanoseconds)std::chrono::duration_cast<std::chrono::nanoseconds>(end - start));
 
 #define CODES "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+#define CODES_URL_SAFE "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_="
+
 #define EMPTY ""
 #define SEP EMPTY
 
 /* macro to `unsign' a character */
 #define uchar(c) ((unsigned char)(c))
-
-typedef unsigned b_uint;
 
 static void addfield(lua_State* L, int idx, luaL_Buffer* b, int i)
 {
@@ -148,58 +147,12 @@ static int string_char_four(lua_State* L, int ca, int cb, int cc, int cd)
     return 1;
 }
 
-static b_uint band(b_uint a, b_uint b)
-{
-    b_uint r = ~(b_uint)0;
-    r &= a;
-    r &= b;
-    return trim(r);
-}
-
-static b_uint bor(b_uint a, b_uint b)
-{
-    b_uint r = (b_uint)0;
-    r |= a;
-    r |= b;
-    return trim(r);
-}
-
-static b_uint shift(b_uint r, int i)
-{
-    if (i < 0)
-    { /* shift right? */
-        i = -i;
-        r = trim(r);
-        if (i >= NBITS)
-            r = 0;
-        else
-            r >>= i;
-    }
-    else
-    { /* shift left */
-        if (i >= NBITS)
-            r = 0;
-        else
-            r <<= i;
-        r = trim(r);
-    }
-    return r;
-}
-
-static b_uint lshift(b_uint r, int i)
-{
-    return shift(r, i);
-}
-
-static b_uint rshift(b_uint r, int i)
-{
-    return shift(r, -i);
-}
-
 static int base64_encode(lua_State* L)
 {
+    auto start = Clock::now();
     size_t l;
     const char* str = luaL_optlstring(L, 1, EMPTY, &l);
+    bool urlsafe = luaL_optboolean(L, 2, false);
     lua_settop(L, 0);
     lua_createtable(L, 0, 0); // parts = {}
     int j = 1;
@@ -213,14 +166,16 @@ static int base64_encode(lua_State* L)
 
         // 61 is '='
 
+        const char* chosen_codes = urlsafe ? CODES_URL_SAFE : CODES;
+
         // Higher 6 bits of a
-        unsigned char ca = string_byte_one(L, CODES, rshift(a, 2));
+        unsigned char ca = string_byte_one(L, chosen_codes, rshift(a, 2));
         // Lower 2 bits of a + high 4 bits of b
-        unsigned char cb = string_byte_one(L, CODES, bor(lshift(band(a, 3), 4), ((b != NULL) ? rshift(b, 4) : 0)));
+        unsigned char cb = string_byte_one(L, chosen_codes, bor(lshift(band(a, 3), 4), ((b != NULL) ? rshift(b, 4) : 0)));
         // Low 4 bits of b + High 2 bits of c
-        unsigned char cc = ((b != NULL) ? string_byte_one(L, CODES, bor(lshift(band(b, 15), 2),((c != NULL) ? rshift(c, 6) : 0))) : 61);
+        unsigned char cc = ((b != NULL) ? string_byte_one(L, chosen_codes, bor(lshift(band(b, 15), 2),((c != NULL) ? rshift(c, 6) : 0))) : 61);
         // Lower 6 bits of c
-        unsigned char cd = ((c != NULL) ? string_byte_one(L, CODES, band(c, 63)) : 61);
+        unsigned char cd = ((c != NULL) ? string_byte_one(L, chosen_codes, band(c, 63)) : 61);
 
         string_char_four(L, ca, cb, cc, cd);
         lua_rawseti(L, 1, j);
@@ -230,26 +185,34 @@ static int base64_encode(lua_State* L)
         i++;
     }
     table_concat(L, 1); // table.concat(parts)
-    return 1;
+    auto end = Clock::now();
+    auto diff = compare(start, end);
+    lua_pushllong(L, (long long)diff.count());
+    return 2;
 }
 
 // Reverse map from character code to 6-bit integer
 static std::map<unsigned char, int> map = std::map<unsigned char, int>{}; // map = {}
 
+// Reverse map from character code to 6-bit integer
+static std::map<unsigned char, int> map_url_safe = std::map<unsigned char, int>{}; // map_url_safe = {}
+
 static int base64_decode(lua_State* L)
 {
+    auto start = Clock::now();
     size_t l;
     const char* data = luaL_optlstring(L, 1, EMPTY, &l);
+    bool urlsafe = luaL_optboolean(L, 2, false);
     lua_settop(L, 0);
     lua_createtable(L, 0, 0); // bytes = {}
     int j = 1;
     int li = (int)l;
     for (int i = 0; i < li; i++)
     {
-        int a = map[string_byte_one(L, data, i)]; // a = map[string.byte(data, i)]
-        int b = map[string_byte_one(L, data, i + 1)]; // b = map[string.byte(data, i + 1)]
-        int c = map[string_byte_one(L, data, i + 2)]; // c = map[string.byte(data, i + 2)]
-        int d = map[string_byte_one(L, data, i + 3)]; // d = map[string.byte(data, i + 3)]
+        int a = urlsafe ? map_url_safe[string_byte_one(L, data, i)] : map[string_byte_one(L, data, i)]; // a = map[string.byte(data, i)]
+        int b = urlsafe ? map_url_safe[string_byte_one(L, data, i + 1)] : map[string_byte_one(L, data, i + 1)]; // b = map[string.byte(data, i + 1)]
+        int c = urlsafe ? map_url_safe[string_byte_one(L, data, i + 2)] : map[string_byte_one(L, data, i + 2)]; // c = map[string.byte(data, i + 2)]
+        int d = urlsafe ? map_url_safe[string_byte_one(L, data, i + 3)] : map[string_byte_one(L, data, i + 3)]; // d = map[string.byte(data, i + 3)]
 
         // higher 6 bits are the first char
         // lower 2 bits are upper 2 bits of second char
@@ -278,12 +241,119 @@ static int base64_decode(lua_State* L)
         i++;
     }
     table_concat(L, 1); // table.concat(bytes)
-    return 1;
+    auto end = Clock::now();
+    auto diff = compare(start, end);
+    lua_pushllong(L, (long long)diff.count());
+    return 2;
+}
+
+#define uint unsigned int
+
+static const char code[]=
+"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static const char code_url_safe[]=
+"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+static void encode(luaL_Buffer *b, uint c1, uint c2, uint c3, int n, bool url_safe)
+{
+ unsigned long tuple=c3+256UL*(c2+256UL*c1);
+ int i;
+ char s[4];
+ for (i=0; i<4; i++) {
+  s[3-i] = (url_safe ? code_url_safe[tuple % 64] : code[tuple % 64]);
+  tuple /= 64;
+ }
+ for (i=n+1; i<4; i++) s[i]='=';
+ luaL_addlstring(b,s,4);
+}
+
+static int Lencode(lua_State *L)		/** encode(s) */
+{
+ auto start = Clock::now();
+ size_t l;
+ const unsigned char *s=(const unsigned char*)luaL_checklstring(L,1,&l);
+ bool url_safe = luaL_optboolean(L, 2, false);
+ luaL_Buffer b;
+ int n;
+ luaL_buffinit(L,&b);
+ int li = (int)l;
+ for (n=li/3; n--; s+=3) encode(&b,s[0],s[1],s[2],3,url_safe);
+ switch (li%3)
+ {
+  case 1: encode(&b,s[0],0,0,1,url_safe);		break;
+  case 2: encode(&b,s[0],s[1],0,2,url_safe);		break;
+ }
+ luaL_pushresult(&b);
+ auto end = Clock::now();
+ auto diff = compare(start, end);
+ lua_pushllong(L, (long long)diff.count());
+ return 2;
+}
+
+static void decode(luaL_Buffer *b, int c1, int c2, int c3, int c4, int n)
+{
+ unsigned long tuple=c4+64L*(c3+64L*(c2+64L*c1));
+ char s[3];
+ switch (--n)
+ {
+  case 3: s[2]=(char)tuple;
+  case 2: s[1]=(char)(tuple >> 8);
+  case 1: s[0]=(char)(tuple >> 16);
+ }
+ luaL_addlstring(b,s,n);
+}
+
+static int Ldecode(lua_State *L)		/** decode(s) */
+{
+  auto start = Clock::now();
+ size_t l;
+ const char *s=luaL_checklstring(L,1,&l);
+ bool url_safe = luaL_optboolean(L, 2, false);
+ luaL_Buffer b;
+ int n=0;
+ char t[4];
+ luaL_buffinit(L,&b);
+ for (;;)
+ {
+  int c=*s++;
+  switch (c)
+  {
+   const char *p;
+   default:
+    p=strchr((url_safe ? code_url_safe : code),c); if (p==NULL) return 0;
+    t[n++]= (char)(p-(url_safe ? code_url_safe : code));
+    if (n==4)
+    {
+     decode(&b,t[0],t[1],t[2],t[3],4);
+     n=0;
+    }
+    break;
+   case '=':
+    switch (n)
+    {
+     case 1: decode(&b,t[0],0,0,0,1);		break;
+     case 2: decode(&b,t[0],t[1],0,0,2);	break;
+     case 3: decode(&b,t[0],t[1],t[2],0,3);	break;
+    }
+   case 0:
+    luaL_pushresult(&b);
+    auto diff1 = compare(start, Clock::now());
+    lua_pushllong(L, (long long)diff1.count());
+    return 2;
+   case '\n': case '\r': case '\t': case ' ': case '\f': case '\b':
+    break;
+  }
+ }
+ auto diff0 = compare(start, Clock::now());
+ lua_pushllong(L, (long long)diff0.count());
+ return 1;
 }
 
 static const luaL_Reg base64lib[] = {
     {"encode", base64_encode},
     {"decode", base64_decode},
+    {"encodeL", Lencode},
+    {"decodeL", Ldecode},
     {NULL, NULL},
 };
 
@@ -298,6 +368,12 @@ LUALIB_API int luaopen_base64(lua_State* L)
 
     for (int i = 1; i < lcodes; i++){
         map[string_byte_one(L, CODES, i)] = i;
+    }
+
+    int lcodes_url = (int)strlen(CODES_URL_SAFE);
+
+    for (int i = 1; i < lcodes_url; i++){
+        map_url_safe[string_byte_one(L, CODES_URL_SAFE, i)] = i;
     }
 
     return 1;

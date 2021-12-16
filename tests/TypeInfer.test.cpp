@@ -3350,7 +3350,7 @@ TEST_CASE_FIXTURE(Fixture, "concat_op_on_string_lhs_and_free_rhs")
 
 TEST_CASE_FIXTURE(Fixture, "strict_binary_op_where_lhs_unknown")
 {
-    std::vector<std::string> ops = {"+", "-", "*", "/", "%", "^", ".."};
+    std::vector<std::string> ops = {"+", "-", "*", "/", "//", "%", "^", ".."};
 
     std::string src = R"(
         function foo(a, b)

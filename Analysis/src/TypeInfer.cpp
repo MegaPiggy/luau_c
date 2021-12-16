@@ -2028,6 +2028,41 @@ ExprResult<TypeId> TypeChecker::checkExpr(const ScopePtr& scope, const AstExprUn
 
         return {numberType};
 
+    case AstExprUnary::Bnot:
+    {
+        const bool operandIsAny = get<AnyTypeVar>(operandType) || get<ErrorTypeVar>(operandType);
+
+        if (operandIsAny)
+            return {operandType};
+
+        if (typeCouldHaveMetatable(operandType))
+        {
+            if (auto fnt = findMetatableEntry(operandType, "__bnot", expr.location))
+            {
+                TypeId actualFunctionType = instantiate(scope, *fnt, expr.location);
+                TypePackId arguments = addTypePack({operandType});
+                TypePackId retTypePack = freshTypePack(scope);
+                TypeId expectedFunctionType = addType(FunctionTypeVar(scope->level, arguments, retTypePack));
+
+                Unifier state = mkUnifier(expr.location);
+                state.tryUnify(expectedFunctionType, actualFunctionType, /*isFunctionCall*/ true);
+
+                TypeId retType = first(retTypePack).value_or(nilType);
+                if (!state.errors.empty())
+                    retType = errorRecoveryType(retType);
+
+                return {retType};
+            }
+
+            reportError(expr.location,
+                GenericError{format("Unary operator '%s' not supported by type '%s'", toString(expr.op).c_str(), toString(operandType).c_str())});
+            return {errorRecoveryType(scope)};
+        }
+
+        reportErrors(tryUnify(numberType, operandType, expr.location));
+        return {numberType};
+    }
+
     default:
         ice("Unknown AstExprUnary " + std::to_string(int(expr.op)));
     }
@@ -2058,6 +2093,18 @@ std::string opToMetaTableEntry(const AstExprBinary::Op& op)
         return "__mod";
     case AstExprBinary::Pow:
         return "__pow";
+    case AstExprBinary::IDiv:
+        return "__idiv";
+    case AstExprBinary::Band:
+        return "__band";
+    case AstExprBinary::Bor:
+        return "__bor";
+    case AstExprBinary::Bxor:
+        return "__bxor";
+    case AstExprBinary::Shr:
+        return "__shr";
+    case AstExprBinary::Shl:
+        return "__shl";
     case AstExprBinary::Concat:
         return "__concat";
     default:
@@ -2383,6 +2430,12 @@ TypeId TypeChecker::checkBinaryOperation(
     case AstExprBinary::Div:
     case AstExprBinary::Mod:
     case AstExprBinary::Pow:
+    case AstExprBinary::IDiv:
+    case AstExprBinary::Band:
+    case AstExprBinary::Bor:
+    case AstExprBinary::Bxor:
+    case AstExprBinary::Shr:
+    case AstExprBinary::Shl:
         reportErrors(tryUnify(numberType, lhsType, expr.left->location));
         reportErrors(tryUnify(numberType, rhsType, expr.right->location));
         return numberType;

@@ -108,10 +108,14 @@ target_sources(Luau.VM PRIVATE
     VM/include/lualib.h
 
     VM/src/lapi.cpp
+    VM/src/lascii85lib.cpp
     VM/src/laux.cpp
     VM/src/lbaselib.cpp
     VM/src/lbase64lib.cpp
+    VM/src/lbit.cpp
     VM/src/lbitlib.cpp
+    VM/src/lbooklib.cpp
+    VM/src/lboost.cpp
     VM/src/lbuiltins.cpp
     VM/src/lc.cpp
     VM/src/lcorolib.cpp
@@ -119,6 +123,7 @@ target_sources(Luau.VM PRIVATE
     VM/src/ldblib.cpp
     VM/src/ldebug.cpp
     VM/src/ldo.cpp
+    VM/src/lenum.cpp
     VM/src/lfunc.cpp
     VM/src/lgc.cpp
     VM/src/linit.cpp
@@ -133,18 +138,22 @@ target_sources(Luau.VM PRIVATE
     VM/src/lstrlib.cpp
     VM/src/ltable.cpp
     VM/src/ltablib.cpp
+    VM/src/ltimelib.cpp
     VM/src/ltm.cpp
     VM/src/lutf8lib.cpp
     VM/src/lvmexecute.cpp
     VM/src/lvmload.cpp
     VM/src/lvmutils.cpp
     VM/src/lapi.h
+    VM/src/lbit.h
+    VM/src/lboost.h
     VM/src/lbuiltins.h
     VM/src/lbytecode.h
     VM/src/lc.h
     VM/src/lcommon.h
     VM/src/ldebug.h
     VM/src/ldo.h
+    VM/src/lenum.h
     VM/src/lfunc.h
     VM/src/lgc.h
     VM/src/lmem.h

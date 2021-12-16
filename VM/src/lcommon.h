@@ -26,6 +26,11 @@ typedef LUAI_USER_ALIGNMENT_T L_Umaxalign;
 #define cast_byte(i) cast_to(uint8_t, (i))
 #define cast_num(i) cast_to(double, (i))
 #define cast_int(i) cast_to(int, (i))
+#define cast_long(i) cast_to(long, (i))
+#define cast_llong(i) cast_to(long long, (i))
+#define cast_unsigned(i) cast_to(unsigned, (i))
+#define cast_ulong(i) cast_to(unsigned long, (i))
+#define cast_ullong(i) cast_to(unsigned long long, (i))
 
 /*
 ** type for virtual-machine instructions
