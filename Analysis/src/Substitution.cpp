@@ -2,28 +2,32 @@
 #include "Luau/Substitution.h"
 
 #include "Luau/Common.h"
+#include "Luau/Clone.h"
+#include "Luau/TxnLog.h"
 
 #include <algorithm>
 #include <stdexcept>
 
-LUAU_FASTINTVARIABLE(LuauTarjanChildLimit, 1000)
-LUAU_FASTFLAGVARIABLE(LuauSubstitutionDontReplaceIgnoredTypes, false)
-LUAU_FASTFLAG(LuauTypeAliasPacks)
+LUAU_FASTFLAG(LuauLowerBoundsCalculation)
+LUAU_FASTINTVARIABLE(LuauTarjanChildLimit, 10000)
 
 namespace Luau
 {
 
 void Tarjan::visitChildren(TypeId ty, int index)
 {
-    ty = follow(ty);
+    LUAU_ASSERT(ty == log->follow(ty));
 
     if (ignoreChildren(ty))
         return;
 
+    if (auto pty = log->pending(ty))
+        ty = &pty->pending;
+
     if (const FunctionTypeVar* ftv = get<FunctionTypeVar>(ty))
     {
         visitChild(ftv->argTypes);
-        visitChild(ftv->retType);
+        visitChild(ftv->retTypes);
     }
     else if (const TableTypeVar* ttv = get<TableTypeVar>(ty))
     {
@@ -39,11 +43,8 @@ void Tarjan::visitChildren(TypeId ty, int index)
         for (TypeId itp : ttv->instantiatedTypeParams)
             visitChild(itp);
 
-        if (FFlag::LuauTypeAliasPacks)
-        {
-            for (TypePackId itp : ttv->instantiatedTypePackParams)
-                visitChild(itp);
-        }
+        for (TypePackId itp : ttv->instantiatedTypePackParams)
+            visitChild(itp);
     }
     else if (const MetatableTypeVar* mtv = get<MetatableTypeVar>(ty))
     {
@@ -60,14 +61,22 @@ void Tarjan::visitChildren(TypeId ty, int index)
         for (TypeId part : itv->parts)
             visitChild(part);
     }
+    else if (const ConstrainedTypeVar* ctv = get<ConstrainedTypeVar>(ty))
+    {
+        for (TypeId part : ctv->parts)
+            visitChild(part);
+    }
 }
 
 void Tarjan::visitChildren(TypePackId tp, int index)
 {
-    tp = follow(tp);
+    LUAU_ASSERT(tp == log->follow(tp));
 
     if (ignoreChildren(tp))
         return;
+
+    if (auto ptp = log->pending(tp))
+        tp = &ptp->pending;
 
     if (const TypePack* tpp = get<TypePack>(tp))
     {
@@ -84,7 +93,7 @@ void Tarjan::visitChildren(TypePackId tp, int index)
 
 std::pair<int, bool> Tarjan::indexify(TypeId ty)
 {
-    ty = follow(ty);
+    ty = log->follow(ty);
 
     bool fresh = !typeToIndex.contains(ty);
     int& index = typeToIndex[ty];
@@ -102,7 +111,7 @@ std::pair<int, bool> Tarjan::indexify(TypeId ty)
 
 std::pair<int, bool> Tarjan::indexify(TypePackId tp)
 {
-    tp = follow(tp);
+    tp = log->follow(tp);
 
     bool fresh = !packToIndex.contains(tp);
     int& index = packToIndex[tp];
@@ -120,7 +129,7 @@ std::pair<int, bool> Tarjan::indexify(TypePackId tp)
 
 void Tarjan::visitChild(TypeId ty)
 {
-    ty = follow(ty);
+    ty = log->follow(ty);
 
     edgesTy.push_back(ty);
     edgesTp.push_back(nullptr);
@@ -128,7 +137,7 @@ void Tarjan::visitChild(TypeId ty)
 
 void Tarjan::visitChild(TypePackId tp)
 {
-    tp = follow(tp);
+    tp = log->follow(tp);
 
     edgesTy.push_back(nullptr);
     edgesTp.push_back(tp);
@@ -145,7 +154,7 @@ TarjanResult Tarjan::loop()
         if (currEdge == -1)
         {
             ++childCount;
-            if (FInt::LuauTarjanChildLimit > 0 && FInt::LuauTarjanChildLimit < childCount)
+            if (childLimit > 0 && childLimit < childCount)
                 return TarjanResult::TooManyChildren;
 
             stack.push_back(index);
@@ -230,27 +239,14 @@ TarjanResult Tarjan::loop()
     return TarjanResult::Ok;
 }
 
-void Tarjan::clear()
-{
-    typeToIndex.clear();
-    indexToType.clear();
-    packToIndex.clear();
-    indexToPack.clear();
-    lowlink.clear();
-    stack.clear();
-    onStack.clear();
-
-    edgesTy.clear();
-    edgesTp.clear();
-    worklist.clear();
-}
-
 TarjanResult Tarjan::visitRoot(TypeId ty)
 {
     childCount = 0;
-    ty = follow(ty);
+    if (childLimit == 0)
+        childLimit = FInt::LuauTarjanChildLimit;
 
-    clear();
+    ty = log->follow(ty);
+
     auto [index, fresh] = indexify(ty);
     worklist.push_back({index, -1, -1});
     return loop();
@@ -259,9 +255,11 @@ TarjanResult Tarjan::visitRoot(TypeId ty)
 TarjanResult Tarjan::visitRoot(TypePackId tp)
 {
     childCount = 0;
-    tp = follow(tp);
+    if (childLimit == 0)
+        childLimit = FInt::LuauTarjanChildLimit;
 
-    clear();
+    tp = log->follow(tp);
+
     auto [index, fresh] = indexify(tp);
     worklist.push_back({index, -1, -1});
     return loop();
@@ -318,31 +316,27 @@ void FindDirty::visitSCC(int index)
 
 TarjanResult FindDirty::findDirty(TypeId ty)
 {
-    dirty.clear();
     return visitRoot(ty);
 }
 
 TarjanResult FindDirty::findDirty(TypePackId tp)
 {
-    dirty.clear();
     return visitRoot(tp);
 }
 
 std::optional<TypeId> Substitution::substitute(TypeId ty)
 {
-    ty = follow(ty);
-    newTypes.clear();
-    newPacks.clear();
+    ty = log->follow(ty);
 
     auto result = findDirty(ty);
     if (result != TarjanResult::Ok)
         return std::nullopt;
 
     for (auto [oldTy, newTy] : newTypes)
-        if (!FFlag::LuauSubstitutionDontReplaceIgnoredTypes || !ignoreChildren(oldTy))
+        if (!ignoreChildren(oldTy))
             replaceChildren(newTy);
     for (auto [oldTp, newTp] : newPacks)
-        if (!FFlag::LuauSubstitutionDontReplaceIgnoredTypes || !ignoreChildren(oldTp))
+        if (!ignoreChildren(oldTp))
             replaceChildren(newTp);
     TypeId newTy = replace(ty);
     return newTy;
@@ -350,19 +344,17 @@ std::optional<TypeId> Substitution::substitute(TypeId ty)
 
 std::optional<TypePackId> Substitution::substitute(TypePackId tp)
 {
-    tp = follow(tp);
-    newTypes.clear();
-    newPacks.clear();
+    tp = log->follow(tp);
 
     auto result = findDirty(tp);
     if (result != TarjanResult::Ok)
         return std::nullopt;
 
     for (auto [oldTy, newTy] : newTypes)
-        if (!FFlag::LuauSubstitutionDontReplaceIgnoredTypes || !ignoreChildren(oldTy))
+        if (!ignoreChildren(oldTy))
             replaceChildren(newTy);
     for (auto [oldTp, newTp] : newPacks)
-        if (!FFlag::LuauSubstitutionDontReplaceIgnoredTypes || !ignoreChildren(oldTp))
+        if (!ignoreChildren(oldTp))
             replaceChildren(newTp);
     TypePackId newTp = replace(tp);
     return newTp;
@@ -370,62 +362,16 @@ std::optional<TypePackId> Substitution::substitute(TypePackId tp)
 
 TypeId Substitution::clone(TypeId ty)
 {
-    ty = follow(ty);
-
-    TypeId result = ty;
-
-    if (const FunctionTypeVar* ftv = get<FunctionTypeVar>(ty))
-    {
-        FunctionTypeVar clone = FunctionTypeVar{ftv->level, ftv->argTypes, ftv->retType, ftv->definition, ftv->hasSelf};
-        clone.generics = ftv->generics;
-        clone.genericPacks = ftv->genericPacks;
-        clone.magicFunction = ftv->magicFunction;
-        clone.tags = ftv->tags;
-        clone.argNames = ftv->argNames;
-        result = addType(std::move(clone));
-    }
-    else if (const TableTypeVar* ttv = get<TableTypeVar>(ty))
-    {
-        LUAU_ASSERT(!ttv->boundTo);
-        TableTypeVar clone = TableTypeVar{ttv->props, ttv->indexer, ttv->level, ttv->state};
-        clone.methodDefinitionLocations = ttv->methodDefinitionLocations;
-        clone.definitionModuleName = ttv->definitionModuleName;
-        clone.name = ttv->name;
-        clone.syntheticName = ttv->syntheticName;
-        clone.instantiatedTypeParams = ttv->instantiatedTypeParams;
-
-        if (FFlag::LuauTypeAliasPacks)
-            clone.instantiatedTypePackParams = ttv->instantiatedTypePackParams;
-
-        clone.tags = ttv->tags;
-        result = addType(std::move(clone));
-    }
-    else if (const MetatableTypeVar* mtv = get<MetatableTypeVar>(ty))
-    {
-        MetatableTypeVar clone = MetatableTypeVar{mtv->table, mtv->metatable};
-        clone.syntheticName = mtv->syntheticName;
-        result = addType(std::move(clone));
-    }
-    else if (const UnionTypeVar* utv = get<UnionTypeVar>(ty))
-    {
-        UnionTypeVar clone;
-        clone.options = utv->options;
-        result = addType(std::move(clone));
-    }
-    else if (const IntersectionTypeVar* itv = get<IntersectionTypeVar>(ty))
-    {
-        IntersectionTypeVar clone;
-        clone.parts = itv->parts;
-        result = addType(std::move(clone));
-    }
-
-    asMutable(result)->documentationSymbol = ty->documentationSymbol;
-    return result;
+    return shallowClone(ty, *arena, log);
 }
 
 TypePackId Substitution::clone(TypePackId tp)
 {
-    tp = follow(tp);
+    tp = log->follow(tp);
+
+    if (auto ptp = log->pending(tp))
+        tp = &ptp->pending;
+
     if (const TypePack* tpp = get<TypePack>(tp))
     {
         TypePack clone;
@@ -445,25 +391,28 @@ TypePackId Substitution::clone(TypePackId tp)
 
 void Substitution::foundDirty(TypeId ty)
 {
-    ty = follow(ty);
+    ty = log->follow(ty);
+
     if (isDirty(ty))
-        newTypes[ty] = clean(ty);
+        newTypes[ty] = follow(clean(ty));
     else
-        newTypes[ty] = clone(ty);
+        newTypes[ty] = follow(clone(ty));
 }
 
 void Substitution::foundDirty(TypePackId tp)
 {
-    tp = follow(tp);
+    tp = log->follow(tp);
+
     if (isDirty(tp))
-        newPacks[tp] = clean(tp);
+        newPacks[tp] = follow(clean(tp));
     else
-        newPacks[tp] = clone(tp);
+        newPacks[tp] = follow(clone(tp));
 }
 
 TypeId Substitution::replace(TypeId ty)
 {
-    ty = follow(ty);
+    ty = log->follow(ty);
+
     if (TypeId* prevTy = newTypes.find(ty))
         return *prevTy;
     else
@@ -472,7 +421,8 @@ TypeId Substitution::replace(TypeId ty)
 
 TypePackId Substitution::replace(TypePackId tp)
 {
-    tp = follow(tp);
+    tp = log->follow(tp);
+
     if (TypePackId* prevTp = newPacks.find(tp))
         return *prevTp;
     else
@@ -481,7 +431,10 @@ TypePackId Substitution::replace(TypePackId tp)
 
 void Substitution::replaceChildren(TypeId ty)
 {
-    ty = follow(ty);
+    if (BoundTypeVar* btv = log->getMutable<BoundTypeVar>(ty); FFlag::LuauLowerBoundsCalculation && btv)
+        btv->boundTo = replace(btv->boundTo);
+
+    LUAU_ASSERT(ty == log->follow(ty));
 
     if (ignoreChildren(ty))
         return;
@@ -489,7 +442,7 @@ void Substitution::replaceChildren(TypeId ty)
     if (FunctionTypeVar* ftv = getMutable<FunctionTypeVar>(ty))
     {
         ftv->argTypes = replace(ftv->argTypes);
-        ftv->retType = replace(ftv->retType);
+        ftv->retTypes = replace(ftv->retTypes);
     }
     else if (TableTypeVar* ttv = getMutable<TableTypeVar>(ty))
     {
@@ -505,11 +458,8 @@ void Substitution::replaceChildren(TypeId ty)
         for (TypeId& itp : ttv->instantiatedTypeParams)
             itp = replace(itp);
 
-        if (FFlag::LuauTypeAliasPacks)
-        {
-            for (TypePackId& itp : ttv->instantiatedTypePackParams)
-                itp = replace(itp);
-        }
+        for (TypePackId& itp : ttv->instantiatedTypePackParams)
+            itp = replace(itp);
     }
     else if (MetatableTypeVar* mtv = getMutable<MetatableTypeVar>(ty))
     {
@@ -526,11 +476,16 @@ void Substitution::replaceChildren(TypeId ty)
         for (TypeId& part : itv->parts)
             part = replace(part);
     }
+    else if (ConstrainedTypeVar* ctv = getMutable<ConstrainedTypeVar>(ty))
+    {
+        for (TypeId& part : ctv->parts)
+            part = replace(part);
+    }
 }
 
 void Substitution::replaceChildren(TypePackId tp)
 {
-    tp = follow(tp);
+    LUAU_ASSERT(tp == log->follow(tp));
 
     if (ignoreChildren(tp))
         return;

@@ -1,5 +1,7 @@
 # coroutine.close
 
+**Status**: Implemented
+
 ## Summary
 
 Add `coroutine.close` function from Lua 5.4 that takes a suspended coroutine and makes it "dead" (non-runnable).

@@ -2,6 +2,7 @@
 // This code is based on Lua 5.x implementation licensed under MIT License; see lua_LICENSE.txt for details
 #include "lualib.h"
 
+#include "lapi.h"
 #include "lstate.h"
 #include "ltable.h"
 #include "lstring.h"
@@ -531,6 +532,20 @@ static int tfirst(lua_State* L)
     return 1;
 }
 
+static int tclone(lua_State* L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+    luaL_argcheck(L, !luaL_getmetafield(L, 1, "__metatable"), 1, "table has a protected metatable");
+
+    Table* tt = luaH_clone(L, hvalue(L->base));
+
+    TValue v;
+    sethvalue(L, &v, tt);
+    luaA_pushobject(L, &v);
+
+    return 1;
+}
+
 static const luaL_Reg tab_funcs[] = {
     {"concat", tconcat},
     {"foreach", foreach},
@@ -550,10 +565,11 @@ static const luaL_Reg tab_funcs[] = {
     {"isfrozen", tisfrozen},
     {"isempty", tisempty},
     {"first", tfirst},
+    {"clone", tclone},
     {NULL, NULL},
 };
 
-LUALIB_API int luaopen_table(lua_State* L)
+int luaopen_table(lua_State* L)
 {
     luaL_register(L, LUA_TABLIBNAME, tab_funcs);
 

@@ -108,7 +108,7 @@ static int auxgetinfo(lua_State* L, const char* what, lua_Debug* ar, Closure* f,
             {
                 ar->source = getstr(f->l.p->source);
                 ar->what = "Lua";
-                ar->linedefined = luaG_getline(f->l.p, 0);
+                ar->linedefined = f->l.p->linedefined;
             }
             luaO_chunkid(ar->short_src, ar->source, LUA_IDSIZE);
             break;
@@ -121,7 +121,7 @@ static int auxgetinfo(lua_State* L, const char* what, lua_Debug* ar, Closure* f,
             }
             else
             {
-                ar->currentline = f->isC ? -1 : luaG_getline(f->l.p, 0);
+                ar->currentline = f->isC ? -1 : f->l.p->linedefined;
             }
 
             break;
@@ -154,6 +154,11 @@ static int auxgetinfo(lua_State* L, const char* what, lua_Debug* ar, Closure* f,
         }
     }
     return status;
+}
+
+int lua_stackdepth(lua_State* L)
+{
+    return int(L->ci - L->base_ci);
 }
 
 int lua_getinfo(lua_State* L, int level, const char* what, lua_Debug* ar)
@@ -368,6 +373,69 @@ void lua_breakpoint(lua_State* L, int funcindex, int line, int enabled)
     api_check(L, ttisfunction(func) && !clvalue(func)->isC);
 
     luaG_breakpoint(L, clvalue(func)->l.p, line, bool(enabled));
+}
+
+static int getmaxline(Proto* p)
+{
+    int result = -1;
+
+    for (int i = 0; i < p->sizecode; ++i)
+    {
+        int line = luaG_getline(p, i);
+        result = result < line ? line : result;
+    }
+
+    for (int i = 0; i < p->sizep; ++i)
+    {
+        int psize = getmaxline(p->p[i]);
+        result = result < psize ? psize : result;
+    }
+
+    return result;
+}
+
+static void getcoverage(Proto* p, int depth, int* buffer, size_t size, void* context, lua_Coverage callback)
+{
+    memset(buffer, -1, size * sizeof(int));
+
+    for (int i = 0; i < p->sizecode; ++i)
+    {
+        Instruction insn = p->code[i];
+        if (LUAU_INSN_OP(insn) != LOP_COVERAGE)
+            continue;
+
+        int line = luaG_getline(p, i);
+        int hits = LUAU_INSN_E(insn);
+
+        LUAU_ASSERT(size_t(line) < size);
+        buffer[line] = buffer[line] < hits ? hits : buffer[line];
+    }
+
+    const char* debugname = p->debugname ? getstr(p->debugname) : NULL;
+    int linedefined = p->linedefined;
+
+    callback(context, debugname, linedefined, depth, buffer, size);
+
+    for (int i = 0; i < p->sizep; ++i)
+        getcoverage(p->p[i], depth + 1, buffer, size, context, callback);
+}
+
+void lua_getcoverage(lua_State* L, int funcindex, void* context, lua_Coverage callback)
+{
+    const TValue* func = luaA_toobject(L, funcindex);
+    api_check(L, ttisfunction(func) && !clvalue(func)->isC);
+
+    Proto* p = clvalue(func)->l.p;
+
+    size_t size = getmaxline(p) + 1;
+    if (size == 0)
+        return;
+
+    int* buffer = luaM_newarray(L, size, int, 0);
+
+    getcoverage(p, 0, buffer, size, context, callback);
+
+    luaM_freearray(L, buffer, size, int, 0);
 }
 
 static size_t append(char* buf, size_t bufsize, size_t offset, const char* data)

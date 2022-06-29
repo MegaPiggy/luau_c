@@ -1,5 +1,7 @@
 # bit32.countlz/countrz
 
+**Status**: Implemented
+
 ## Summary
 
 Add bit32.countlz (count left zeroes) and bit32.countrz (count right zeroes) to accelerate bit scanning

@@ -5,6 +5,7 @@
 #include "Luau/Common.h"
 #include "Luau/DenseHash.h"
 #include "Luau/Error.h"
+#include "Luau/RecursionCounter.h"
 #include "Luau/StringUtils.h"
 #include "Luau/ToString.h"
 #include "Luau/TypeInfer.h"
@@ -17,31 +18,39 @@
 #include <unordered_map>
 #include <unordered_set>
 
+LUAU_FASTFLAG(DebugLuauFreezeArena)
+
 LUAU_FASTINTVARIABLE(LuauTypeMaximumStringifierLength, 500)
 LUAU_FASTINTVARIABLE(LuauTableTypeMaximumStringifierLength, 0)
-LUAU_FASTFLAG(LuauTypeAliasPacks)
-LUAU_FASTFLAGVARIABLE(LuauRefactorTagging, false)
-LUAU_FASTFLAG(LuauErrorRecoveryType)
+LUAU_FASTINT(LuauTypeInferRecursionLimit)
+LUAU_FASTFLAG(LuauNonCopyableTypeVarFields)
 
 namespace Luau
 {
 
-std::optional<ExprResult<TypePackId>> magicFunctionFormat(
-    TypeChecker& typechecker, const ScopePtr& scope, const AstExprCall& expr, ExprResult<TypePackId> exprResult);
+std::optional<WithPredicate<TypePackId>> magicFunctionFormat(
+    TypeChecker& typechecker, const ScopePtr& scope, const AstExprCall& expr, WithPredicate<TypePackId> withPredicate);
 
 TypeId follow(TypeId t)
 {
-    auto advance = [](TypeId ty) -> std::optional<TypeId> {
-        if (auto btv = get<Unifiable::Bound<TypeId>>(ty))
+    return follow(t, [](TypeId t) {
+        return t;
+    });
+}
+
+TypeId follow(TypeId t, std::function<TypeId(TypeId)> mapper)
+{
+    auto advance = [&mapper](TypeId ty) -> std::optional<TypeId> {
+        if (auto btv = get<Unifiable::Bound<TypeId>>(mapper(ty)))
             return btv->boundTo;
-        else if (auto ttv = get<TableTypeVar>(ty))
+        else if (auto ttv = get<TableTypeVar>(mapper(ty)))
             return ttv->boundTo;
         else
             return std::nullopt;
     };
 
-    auto force = [](TypeId ty) {
-        if (auto ltv = get_if<LazyTypeVar>(&ty->ty))
+    auto force = [&mapper](TypeId ty) {
+        if (auto ltv = get_if<LazyTypeVar>(&mapper(ty)->ty))
         {
             TypeId res = ltv->thunk();
             if (get<LazyTypeVar>(res))
@@ -133,7 +142,13 @@ bool isNil(TypeId ty)
 
 bool isBoolean(TypeId ty)
 {
-    return isPrim(ty, PrimitiveTypeVar::Boolean);
+    if (isPrim(ty, PrimitiveTypeVar::Boolean) || get<BooleanSingleton>(get<SingletonTypeVar>(follow(ty))))
+        return true;
+
+    if (auto utv = get<UnionTypeVar>(follow(ty)))
+        return std::all_of(begin(utv), end(utv), isBoolean);
+
+    return false;
 }
 
 bool isNumber(TypeId ty)
@@ -141,9 +156,30 @@ bool isNumber(TypeId ty)
     return isPrim(ty, PrimitiveTypeVar::Number);
 }
 
+// Returns true when ty is a subtype of string
 bool isString(TypeId ty)
 {
-    return isPrim(ty, PrimitiveTypeVar::String);
+    if (isPrim(ty, PrimitiveTypeVar::String) || get<StringSingleton>(get<SingletonTypeVar>(follow(ty))))
+        return true;
+
+    if (auto utv = get<UnionTypeVar>(follow(ty)))
+        return std::all_of(begin(utv), end(utv), isString);
+
+    return false;
+}
+
+// Returns true when ty is a supertype of string
+bool maybeString(TypeId ty)
+{
+    ty = follow(ty);
+
+    if (isPrim(ty, PrimitiveTypeVar::String) || get<AnyTypeVar>(ty))
+        return true;
+
+    if (auto utv = get<UnionTypeVar>(ty))
+        return std::any_of(begin(utv), end(utv), maybeString);
+
+    return false;
 }
 
 bool isThread(TypeId ty)
@@ -156,37 +192,16 @@ bool isOptional(TypeId ty)
     if (isNil(ty))
         return true;
 
-    if (!get<UnionTypeVar>(follow(ty)))
+    ty = follow(ty);
+
+    if (get<AnyTypeVar>(ty))
+        return true;
+
+    auto utv = get<UnionTypeVar>(ty);
+    if (!utv)
         return false;
 
-    std::unordered_set<TypeId> seen;
-    std::deque<TypeId> queue{ty};
-    while (!queue.empty())
-    {
-        TypeId current = follow(queue.front());
-        queue.pop_front();
-
-        if (seen.count(current))
-            continue;
-
-        seen.insert(current);
-
-        if (isNil(current))
-            return true;
-
-        if (auto u = get<UnionTypeVar>(current))
-        {
-            for (TypeId option : u->options)
-            {
-                if (isNil(option))
-                    return true;
-
-                queue.push_back(option);
-            }
-        }
-    }
-
-    return false;
+    return std::any_of(begin(utv), end(utv), isOptional);
 }
 
 bool isTableIntersection(TypeId ty)
@@ -217,21 +232,24 @@ std::optional<TypeId> getMetatable(TypeId type)
         return mtType->metatable;
     else if (const ClassTypeVar* classType = get<ClassTypeVar>(type))
         return classType->metatable;
-    else if (const PrimitiveTypeVar* primitiveType = get<PrimitiveTypeVar>(type); primitiveType && primitiveType->metatable)
+    else if (isString(type))
     {
-        LUAU_ASSERT(primitiveType->type == PrimitiveTypeVar::String);
-        return primitiveType->metatable;
+        auto ptv = get<PrimitiveTypeVar>(getSingletonTypes().stringType);
+        LUAU_ASSERT(ptv && ptv->metatable);
+        return ptv->metatable;
     }
-    else
-        return std::nullopt;
+
+    return std::nullopt;
 }
 
 const TableTypeVar* getTableType(TypeId type)
 {
+    type = follow(type);
+
     if (const TableTypeVar* ttv = get<TableTypeVar>(type))
         return ttv;
     else if (const MetatableTypeVar* mtv = get<MetatableTypeVar>(type))
-        return get<TableTypeVar>(mtv->table);
+        return get<TableTypeVar>(follow(mtv->table));
     else
         return nullptr;
 }
@@ -248,7 +266,7 @@ const std::string* getName(TypeId type)
     {
         if (mtv->syntheticName)
             return &*mtv->syntheticName;
-        type = mtv->table;
+        type = follow(mtv->table);
     }
 
     if (auto ttv = get<TableTypeVar>(type))
@@ -260,6 +278,29 @@ const std::string* getName(TypeId type)
     }
 
     return nullptr;
+}
+
+std::optional<ModuleName> getDefinitionModuleName(TypeId type)
+{
+    type = follow(type);
+
+    if (auto ttv = get<TableTypeVar>(type))
+    {
+        if (!ttv->definitionModuleName.empty())
+            return ttv->definitionModuleName;
+    }
+    else if (auto ftv = get<FunctionTypeVar>(type))
+    {
+        if (ftv->definition)
+            return ftv->definition->definitionModuleName;
+    }
+    else if (auto ctv = get<ClassTypeVar>(type))
+    {
+        if (!ctv->definitionModuleName.empty())
+            return ctv->definitionModuleName;
+    }
+
+    return std::nullopt;
 }
 
 bool isSubset(const UnionTypeVar& super, const UnionTypeVar& sub)
@@ -318,41 +359,89 @@ bool maybeSingleton(TypeId ty)
     return false;
 }
 
-FunctionTypeVar::FunctionTypeVar(TypePackId argTypes, TypePackId retType, std::optional<FunctionDefinition> defn, bool hasSelf)
+bool hasLength(TypeId ty, DenseHashSet<TypeId>& seen, int* recursionCount)
+{
+    RecursionLimiter _rl(recursionCount, FInt::LuauTypeInferRecursionLimit);
+
+    ty = follow(ty);
+
+    if (seen.contains(ty))
+        return true;
+
+    if (isString(ty) || get<AnyTypeVar>(ty) || get<TableTypeVar>(ty) || get<MetatableTypeVar>(ty))
+        return true;
+
+    if (auto uty = get<UnionTypeVar>(ty))
+    {
+        seen.insert(ty);
+
+        for (TypeId part : uty->options)
+        {
+            if (!hasLength(part, seen, recursionCount))
+                return false;
+        }
+
+        return true;
+    }
+
+    if (auto ity = get<IntersectionTypeVar>(ty))
+    {
+        seen.insert(ty);
+
+        for (TypeId part : ity->parts)
+        {
+            if (hasLength(part, seen, recursionCount))
+                return true;
+        }
+
+        return false;
+    }
+
+    return false;
+}
+
+BlockedTypeVar::BlockedTypeVar()
+    : index(++nextIndex)
+{
+}
+
+int BlockedTypeVar::nextIndex = 0;
+
+FunctionTypeVar::FunctionTypeVar(TypePackId argTypes, TypePackId retTypes, std::optional<FunctionDefinition> defn, bool hasSelf)
     : argTypes(argTypes)
-    , retType(retType)
+    , retTypes(retTypes)
     , definition(std::move(defn))
     , hasSelf(hasSelf)
 {
 }
 
-FunctionTypeVar::FunctionTypeVar(TypeLevel level, TypePackId argTypes, TypePackId retType, std::optional<FunctionDefinition> defn, bool hasSelf)
+FunctionTypeVar::FunctionTypeVar(TypeLevel level, TypePackId argTypes, TypePackId retTypes, std::optional<FunctionDefinition> defn, bool hasSelf)
     : level(level)
     , argTypes(argTypes)
-    , retType(retType)
+    , retTypes(retTypes)
     , definition(std::move(defn))
     , hasSelf(hasSelf)
 {
 }
 
-FunctionTypeVar::FunctionTypeVar(std::vector<TypeId> generics, std::vector<TypePackId> genericPacks, TypePackId argTypes, TypePackId retType,
+FunctionTypeVar::FunctionTypeVar(std::vector<TypeId> generics, std::vector<TypePackId> genericPacks, TypePackId argTypes, TypePackId retTypes,
     std::optional<FunctionDefinition> defn, bool hasSelf)
     : generics(generics)
     , genericPacks(genericPacks)
     , argTypes(argTypes)
-    , retType(retType)
+    , retTypes(retTypes)
     , definition(std::move(defn))
     , hasSelf(hasSelf)
 {
 }
 
 FunctionTypeVar::FunctionTypeVar(TypeLevel level, std::vector<TypeId> generics, std::vector<TypePackId> genericPacks, TypePackId argTypes,
-    TypePackId retType, std::optional<FunctionDefinition> defn, bool hasSelf)
+    TypePackId retTypes, std::optional<FunctionDefinition> defn, bool hasSelf)
     : level(level)
     , generics(generics)
     , genericPacks(genericPacks)
     , argTypes(argTypes)
-    , retType(retType)
+    , retTypes(retTypes)
     , definition(std::move(defn))
     , hasSelf(hasSelf)
 {
@@ -398,7 +487,7 @@ bool areEqual(SeenSet& seen, const FunctionTypeVar& lhs, const FunctionTypeVar& 
     if (!areEqual(seen, *lhs.argTypes, *rhs.argTypes))
         return false;
 
-    if (!areEqual(seen, *lhs.retType, *rhs.retType))
+    if (!areEqual(seen, *lhs.retTypes, *rhs.retTypes))
         return false;
 
     return true;
@@ -446,6 +535,9 @@ bool areEqual(SeenSet& seen, const TableTypeVar& lhs, const TableTypeVar& rhs)
 
 static bool areEqual(SeenSet& seen, const MetatableTypeVar& lhs, const MetatableTypeVar& rhs)
 {
+    if (areSeen(seen, &lhs, &rhs))
+        return true;
+
     return areEqual(seen, *lhs.table, *rhs.table) && areEqual(seen, *lhs.metatable, *rhs.metatable);
 }
 
@@ -552,6 +644,26 @@ TypeVar& TypeVar::operator=(TypeVariant&& rhs)
     return *this;
 }
 
+TypeVar& TypeVar::operator=(const TypeVar& rhs)
+{
+    if (FFlag::LuauNonCopyableTypeVarFields)
+    {
+        LUAU_ASSERT(owningArena == rhs.owningArena);
+        LUAU_ASSERT(!rhs.persistent);
+
+        reassign(rhs);
+    }
+    else
+    {
+        ty = rhs.ty;
+        persistent = rhs.persistent;
+        normal = rhs.normal;
+        owningArena = rhs.owningArena;
+    }
+
+    return *this;
+}
+
 TypeId makeFunction(TypeArena& arena, std::optional<TypeId> selfType, std::initializer_list<TypeId> generics,
     std::initializer_list<TypePackId> genericPacks, std::initializer_list<TypeId> paramTypes, std::initializer_list<std::string> paramNames,
     std::initializer_list<TypeId> retTypes);
@@ -561,9 +673,10 @@ static TypeVar numberType_{PrimitiveTypeVar{PrimitiveTypeVar::Number}, /*persist
 static TypeVar stringType_{PrimitiveTypeVar{PrimitiveTypeVar::String}, /*persistent*/ true};
 static TypeVar booleanType_{PrimitiveTypeVar{PrimitiveTypeVar::Boolean}, /*persistent*/ true};
 static TypeVar threadType_{PrimitiveTypeVar{PrimitiveTypeVar::Thread}, /*persistent*/ true};
-static TypeVar anyType_{AnyTypeVar{}};
-static TypeVar errorType_{ErrorTypeVar{}};
-static TypeVar optionalNumberType_{UnionTypeVar{{&numberType_, &nilType_}}};
+static TypeVar trueType_{SingletonTypeVar{BooleanSingleton{true}}, /*persistent*/ true};
+static TypeVar falseType_{SingletonTypeVar{BooleanSingleton{false}}, /*persistent*/ true};
+static TypeVar anyType_{AnyTypeVar{}, /*persistent*/ true};
+static TypeVar errorType_{ErrorTypeVar{}, /*persistent*/ true};
 
 static TypePackVar anyTypePack_{VariadicTypePack{&anyType_}, true};
 static TypePackVar errorTypePack_{Unifiable::Error{}};
@@ -574,22 +687,37 @@ SingletonTypes::SingletonTypes()
     , stringType(&stringType_)
     , booleanType(&booleanType_)
     , threadType(&threadType_)
+    , trueType(&trueType_)
+    , falseType(&falseType_)
     , anyType(&anyType_)
-    , optionalNumberType(&optionalNumberType_)
     , anyTypePack(&anyTypePack_)
     , arena(new TypeArena)
 {
     TypeId stringMetatable = makeStringMetatable();
-    stringType_.ty = PrimitiveTypeVar{PrimitiveTypeVar::String, makeStringMetatable()};
+    stringType_.ty = PrimitiveTypeVar{PrimitiveTypeVar::String, stringMetatable};
     persist(stringMetatable);
+
+    debugFreezeArena = FFlag::DebugLuauFreezeArena;
     freeze(*arena);
+}
+
+SingletonTypes::~SingletonTypes()
+{
+    // Destroy the arena with the same memory management flags it was created with
+    bool prevFlag = FFlag::DebugLuauFreezeArena;
+    FFlag::DebugLuauFreezeArena.value = debugFreezeArena;
+
+    unfreeze(*arena);
+    arena.reset(nullptr);
+
+    FFlag::DebugLuauFreezeArena.value = prevFlag;
 }
 
 TypeId SingletonTypes::makeStringMetatable()
 {
     const TypeId optionalNumber = arena->addType(UnionTypeVar{{nilType, numberType}});
     const TypeId optionalString = arena->addType(UnionTypeVar{{nilType, stringType}});
-    const TypeId optionalBoolean = arena->addType(UnionTypeVar{{nilType, &booleanType_}});
+    const TypeId optionalBoolean = arena->addType(UnionTypeVar{{nilType, booleanType}});
 
     const TypePackId oneStringPack = arena->addTypePack({stringType});
     const TypePackId anyTypePack = arena->addTypePack(TypePackVar{VariadicTypePack{anyType}, true});
@@ -613,21 +741,23 @@ TypeId SingletonTypes::makeStringMetatable()
 
     TableTypeVar::Props stringLib = {
         {"byte", {arena->addType(FunctionTypeVar{arena->addTypePack({stringType, optionalNumber, optionalNumber}), numberVariadicList})}},
-        {"char", {arena->addType(FunctionTypeVar{arena->addTypePack(TypePack{{numberType}, numberVariadicList}), arena->addTypePack({stringType})})}},
-        {"find", {makeFunction(*arena, stringType, {}, {}, {stringType, optionalNumber, optionalBoolean}, {}, {optionalNumber, optionalNumber})}},
+        {"char", {arena->addType(FunctionTypeVar{numberVariadicList, arena->addTypePack({stringType})})}},
+        {"find", {arena->addType(FunctionTypeVar{arena->addTypePack({stringType, stringType, optionalNumber, optionalBoolean}),
+                     arena->addTypePack(TypePack{{optionalNumber, optionalNumber}, stringVariadicList})})}},
         {"format", {formatFn}}, // FIXME
         {"gmatch", {gmatchFunc}},
         {"gsub", {gsubFunc}},
         {"index", {makeFunction(*arena, stringType, {}, {}, {numberType}, {}, {optionalString})}},
         {"len", {makeFunction(*arena, stringType, {}, {}, {}, {}, {numberType})}},
         {"lower", {stringToStringType}},
-        {"match", {makeFunction(*arena, stringType, {}, {}, {stringType, optionalNumber}, {}, {optionalString})}},
+        {"match", {arena->addType(FunctionTypeVar{arena->addTypePack({stringType, stringType, optionalNumber}),
+                      arena->addTypePack(TypePackVar{VariadicTypePack{optionalString}})})}},
         {"rep", {makeFunction(*arena, stringType, {}, {}, {numberType}, {}, {stringType})}},
         {"reverse", {stringToStringType}},
         {"sub", {makeFunction(*arena, stringType, {}, {}, {numberType, optionalNumber}, {}, {stringType})}},
         {"upper", {stringToStringType}},
-        {"split", {makeFunction(*arena, stringType, {}, {}, {stringType, optionalString}, {},
-                      {arena->addType(TableTypeVar{{}, TableIndexer{numberType, stringType}, TypeLevel{}})})}},
+        {"split", {makeFunction(*arena, stringType, {}, {}, {optionalString}, {},
+                      {arena->addType(TableTypeVar{{}, TableIndexer{numberType, stringType}, TypeLevel{}, TableState::Sealed})})}},
         {"pack", {arena->addType(FunctionTypeVar{
                      arena->addTypePack(TypePack{{stringType}, anyTypePack}),
                      oneStringPack,
@@ -644,6 +774,9 @@ TypeId SingletonTypes::makeStringMetatable()
 
     TypeId tableType = arena->addType(TableTypeVar{std::move(stringLib), std::nullopt, TypeLevel{}, TableState::Sealed});
 
+    if (TableTypeVar* ttv = getMutable<TableTypeVar>(tableType))
+        ttv->name = "string";
+
     return arena->addType(TableTypeVar{{{{"__index", {tableType}}}}, std::nullopt, TypeLevel{}, TableState::Sealed});
 }
 
@@ -659,21 +792,19 @@ TypePackId SingletonTypes::errorRecoveryTypePack()
 
 TypeId SingletonTypes::errorRecoveryType(TypeId guess)
 {
-    if (FFlag::LuauErrorRecoveryType)
-        return guess;
-    else
-        return &errorType_;
+    return guess;
 }
 
 TypePackId SingletonTypes::errorRecoveryTypePack(TypePackId guess)
 {
-    if (FFlag::LuauErrorRecoveryType)
-        return guess;
-    else
-        return &errorTypePack_;
+    return guess;
 }
 
-SingletonTypes singletonTypes;
+SingletonTypes& getSingletonTypes()
+{
+    static SingletonTypes singletonTypes;
+    return singletonTypes;
+}
 
 void persist(TypeId ty)
 {
@@ -688,16 +819,19 @@ void persist(TypeId ty)
             continue;
 
         asMutable(t)->persistent = true;
+        asMutable(t)->normal = true; // all persistent types are assumed to be normal
 
         if (auto btv = get<BoundTypeVar>(t))
             queue.push_back(btv->boundTo);
         else if (auto ftv = get<FunctionTypeVar>(t))
         {
             persist(ftv->argTypes);
-            persist(ftv->retType);
+            persist(ftv->retTypes);
         }
         else if (auto ttv = get<TableTypeVar>(t))
         {
+            LUAU_ASSERT(ttv->state != TableState::Free && ttv->state != TableState::Unsealed);
+
             for (const auto& [_name, prop] : ttv->props)
                 queue.push_back(prop.type);
 
@@ -722,6 +856,23 @@ void persist(TypeId ty)
             for (TypeId opt : itv->parts)
                 queue.push_back(opt);
         }
+        else if (auto ctv = get<ConstrainedTypeVar>(t))
+        {
+            for (TypeId opt : ctv->parts)
+                queue.push_back(opt);
+        }
+        else if (auto mtv = get<MetatableTypeVar>(t))
+        {
+            queue.push_back(mtv->table);
+            queue.push_back(mtv->metatable);
+        }
+        else if (get<GenericTypeVar>(t) || get<AnyTypeVar>(t) || get<FreeTypeVar>(t) || get<SingletonTypeVar>(t) || get<PrimitiveTypeVar>(t))
+        {
+        }
+        else
+        {
+            LUAU_ASSERT(!"TypeId is not supported in a persist call");
+        }
     }
 }
 
@@ -739,369 +890,17 @@ void persist(TypePackId tp)
         if (p->tail)
             persist(*p->tail);
     }
-}
-
-namespace
-{
-
-struct StateDot
-{
-    StateDot(ToDotOptions opts)
-        : opts(opts)
+    else if (auto vtp = get<VariadicTypePack>(tp))
     {
+        persist(vtp->ty);
     }
-
-    ToDotOptions opts;
-
-    std::unordered_set<TypeId> seenTy;
-    std::unordered_set<TypePackId> seenTp;
-    std::unordered_map<TypeId, int> tyToIndex;
-    std::unordered_map<TypePackId, int> tpToIndex;
-    int nextIndex = 1;
-    std::string result;
-
-    bool canDuplicatePrimitive(TypeId ty);
-
-    void visitChildren(TypeId ty, int index);
-    void visitChildren(TypePackId ty, int index);
-
-    void visitChild(TypeId ty, int parentIndex, const char* linkName = nullptr);
-    void visitChild(TypePackId tp, int parentIndex, const char* linkName = nullptr);
-
-    void startNode(int index);
-    void finishNode();
-
-    void startNodeLabel();
-    void finishNodeLabel(TypeId ty);
-    void finishNodeLabel(TypePackId tp);
-};
-
-bool StateDot::canDuplicatePrimitive(TypeId ty)
-{
-    if (get<BoundTypeVar>(ty))
-        return false;
-
-    return get<PrimitiveTypeVar>(ty) || get<AnyTypeVar>(ty);
-}
-
-void StateDot::visitChild(TypeId ty, int parentIndex, const char* linkName)
-{
-    if (!tyToIndex.count(ty) || (opts.duplicatePrimitives && canDuplicatePrimitive(ty)))
-        tyToIndex[ty] = nextIndex++;
-
-    int index = tyToIndex[ty];
-
-    if (parentIndex != 0)
+    else if (get<GenericTypePack>(tp))
     {
-        if (linkName)
-            formatAppend(result, "n%d -> n%d [label=\"%s\"];\n", parentIndex, index, linkName);
-        else
-            formatAppend(result, "n%d -> n%d;\n", parentIndex, index);
-    }
-
-    if (opts.duplicatePrimitives && canDuplicatePrimitive(ty))
-    {
-        if (get<PrimitiveTypeVar>(ty))
-            formatAppend(result, "n%d [label=\"%s\"];\n", index, toStringDetailed(ty, {}).name.c_str());
-        else if (get<AnyTypeVar>(ty))
-            formatAppend(result, "n%d [label=\"any\"];\n", index);
     }
     else
     {
-        visitChildren(ty, index);
+        LUAU_ASSERT(!"TypePackId is not supported in a persist call");
     }
-}
-
-void StateDot::visitChild(TypePackId tp, int parentIndex, const char* linkName)
-{
-    if (!tpToIndex.count(tp))
-        tpToIndex[tp] = nextIndex++;
-
-    if (linkName)
-        formatAppend(result, "n%d -> n%d [label=\"%s\"];\n", parentIndex, tpToIndex[tp], linkName);
-    else
-        formatAppend(result, "n%d -> n%d;\n", parentIndex, tpToIndex[tp]);
-
-    visitChildren(tp, tpToIndex[tp]);
-}
-
-void StateDot::startNode(int index)
-{
-    formatAppend(result, "n%d [", index);
-}
-
-void StateDot::finishNode()
-{
-    formatAppend(result, "];\n");
-}
-
-void StateDot::startNodeLabel()
-{
-    formatAppend(result, "label=\"");
-}
-
-void StateDot::finishNodeLabel(TypeId ty)
-{
-    if (opts.showPointers)
-        formatAppend(result, "\n0x%p", ty);
-    // additional common attributes can be added here as well
-    result += "\"";
-}
-
-void StateDot::finishNodeLabel(TypePackId tp)
-{
-    if (opts.showPointers)
-        formatAppend(result, "\n0x%p", tp);
-    // additional common attributes can be added here as well
-    result += "\"";
-}
-
-void StateDot::visitChildren(TypeId ty, int index)
-{
-    if (seenTy.count(ty))
-        return;
-    seenTy.insert(ty);
-
-    startNode(index);
-    startNodeLabel();
-
-    if (const BoundTypeVar* btv = get<BoundTypeVar>(ty))
-    {
-        formatAppend(result, "BoundTypeVar %d", index);
-        finishNodeLabel(ty);
-        finishNode();
-
-        visitChild(btv->boundTo, index);
-    }
-    else if (const FunctionTypeVar* ftv = get<FunctionTypeVar>(ty))
-    {
-        formatAppend(result, "FunctionTypeVar %d", index);
-        finishNodeLabel(ty);
-        finishNode();
-
-        visitChild(ftv->argTypes, index, "arg");
-        visitChild(ftv->retType, index, "ret");
-    }
-    else if (const TableTypeVar* ttv = get<TableTypeVar>(ty))
-    {
-        if (ttv->name)
-            formatAppend(result, "TableTypeVar %s", ttv->name->c_str());
-        else if (ttv->syntheticName)
-            formatAppend(result, "TableTypeVar %s", ttv->syntheticName->c_str());
-        else
-            formatAppend(result, "TableTypeVar %d", index);
-        finishNodeLabel(ty);
-        finishNode();
-
-        if (ttv->boundTo)
-            return visitChild(*ttv->boundTo, index, "boundTo");
-
-        for (const auto& [name, prop] : ttv->props)
-            visitChild(prop.type, index, name.c_str());
-        if (ttv->indexer)
-        {
-            visitChild(ttv->indexer->indexType, index, "[index]");
-            visitChild(ttv->indexer->indexResultType, index, "[value]");
-        }
-        for (TypeId itp : ttv->instantiatedTypeParams)
-            visitChild(itp, index, "typeParam");
-
-        if (FFlag::LuauTypeAliasPacks)
-        {
-            for (TypePackId itp : ttv->instantiatedTypePackParams)
-                visitChild(itp, index, "typePackParam");
-        }
-    }
-    else if (const MetatableTypeVar* mtv = get<MetatableTypeVar>(ty))
-    {
-        formatAppend(result, "MetatableTypeVar %d", index);
-        finishNodeLabel(ty);
-        finishNode();
-
-        visitChild(mtv->table, index, "table");
-        visitChild(mtv->metatable, index, "metatable");
-    }
-    else if (const UnionTypeVar* utv = get<UnionTypeVar>(ty))
-    {
-        formatAppend(result, "UnionTypeVar %d", index);
-        finishNodeLabel(ty);
-        finishNode();
-
-        for (TypeId opt : utv->options)
-            visitChild(opt, index);
-    }
-    else if (const IntersectionTypeVar* itv = get<IntersectionTypeVar>(ty))
-    {
-        formatAppend(result, "IntersectionTypeVar %d", index);
-        finishNodeLabel(ty);
-        finishNode();
-
-        for (TypeId part : itv->parts)
-            visitChild(part, index);
-    }
-    else if (const GenericTypeVar* gtv = get<GenericTypeVar>(ty))
-    {
-        if (gtv->explicitName)
-            formatAppend(result, "GenericTypeVar %s", gtv->name.c_str());
-        else
-            formatAppend(result, "GenericTypeVar %d", index);
-        finishNodeLabel(ty);
-        finishNode();
-    }
-    else if (const FreeTypeVar* ftv = get<FreeTypeVar>(ty))
-    {
-        formatAppend(result, "FreeTypeVar %d", ftv->index);
-        finishNodeLabel(ty);
-        finishNode();
-    }
-    else if (get<AnyTypeVar>(ty))
-    {
-        formatAppend(result, "AnyTypeVar %d", index);
-        finishNodeLabel(ty);
-        finishNode();
-    }
-    else if (get<PrimitiveTypeVar>(ty))
-    {
-        formatAppend(result, "PrimitiveTypeVar %s", toStringDetailed(ty, {}).name.c_str());
-        finishNodeLabel(ty);
-        finishNode();
-    }
-    else if (get<ErrorTypeVar>(ty))
-    {
-        formatAppend(result, "ErrorTypeVar %d", index);
-        finishNodeLabel(ty);
-        finishNode();
-    }
-    else if (const ClassTypeVar* ctv = get<ClassTypeVar>(ty))
-    {
-        formatAppend(result, "ClassTypeVar %s", ctv->name.c_str());
-        finishNodeLabel(ty);
-        finishNode();
-
-        for (const auto& [name, prop] : ctv->props)
-            visitChild(prop.type, index, name.c_str());
-
-        if (ctv->parent)
-            visitChild(*ctv->parent, index, "[parent]");
-
-        if (ctv->metatable)
-            visitChild(*ctv->metatable, index, "[metatable]");
-    }
-    else
-    {
-        LUAU_ASSERT(!"unknown type kind");
-        finishNodeLabel(ty);
-        finishNode();
-    }
-}
-
-void StateDot::visitChildren(TypePackId tp, int index)
-{
-    if (seenTp.count(tp))
-        return;
-    seenTp.insert(tp);
-
-    startNode(index);
-    startNodeLabel();
-
-    if (const BoundTypePack* btp = get<BoundTypePack>(tp))
-    {
-        formatAppend(result, "BoundTypePack %d", index);
-        finishNodeLabel(tp);
-        finishNode();
-
-        visitChild(btp->boundTo, index);
-    }
-    else if (const TypePack* tpp = get<TypePack>(tp))
-    {
-        formatAppend(result, "TypePack %d", index);
-        finishNodeLabel(tp);
-        finishNode();
-
-        for (TypeId tv : tpp->head)
-            visitChild(tv, index);
-        if (tpp->tail)
-            visitChild(*tpp->tail, index, "tail");
-    }
-    else if (const VariadicTypePack* vtp = get<VariadicTypePack>(tp))
-    {
-        formatAppend(result, "VariadicTypePack %d", index);
-        finishNodeLabel(tp);
-        finishNode();
-
-        visitChild(vtp->ty, index);
-    }
-    else if (const FreeTypePack* ftp = get<FreeTypePack>(tp))
-    {
-        formatAppend(result, "FreeTypePack %d", ftp->index);
-        finishNodeLabel(tp);
-        finishNode();
-    }
-    else if (const GenericTypePack* gtp = get<GenericTypePack>(tp))
-    {
-        if (gtp->explicitName)
-            formatAppend(result, "GenericTypePack %s", gtp->name.c_str());
-        else
-            formatAppend(result, "GenericTypePack %d", gtp->index);
-        finishNodeLabel(tp);
-        finishNode();
-    }
-    else if (get<Unifiable::Error>(tp))
-    {
-        formatAppend(result, "ErrorTypePack %d", index);
-        finishNodeLabel(tp);
-        finishNode();
-    }
-    else
-    {
-        LUAU_ASSERT(!"unknown type pack kind");
-        finishNodeLabel(tp);
-        finishNode();
-    }
-}
-
-} // namespace
-
-std::string toDot(TypeId ty, const ToDotOptions& opts)
-{
-    StateDot state{opts};
-
-    state.result = "digraph graphname {\n";
-    state.visitChild(ty, 0);
-    state.result += "}";
-
-    return state.result;
-}
-
-std::string toDot(TypePackId tp, const ToDotOptions& opts)
-{
-    StateDot state{opts};
-
-    state.result = "digraph graphname {\n";
-    state.visitChild(tp, 0);
-    state.result += "}";
-
-    return state.result;
-}
-
-std::string toDot(TypeId ty)
-{
-    return toDot(ty, {});
-}
-
-std::string toDot(TypePackId tp)
-{
-    return toDot(tp, {});
-}
-
-void dumpDot(TypeId ty)
-{
-    printf("%s\n", toDot(ty).c_str());
-}
-
-void dumpDot(TypePackId tp)
-{
-    printf("%s\n", toDot(tp).c_str());
 }
 
 const TypeLevel* getLevel(TypeId ty)
@@ -1123,166 +922,15 @@ TypeLevel* getMutableLevel(TypeId ty)
     return const_cast<TypeLevel*>(getLevel(ty));
 }
 
-struct QVarFinder
+std::optional<TypeLevel> getLevel(TypePackId tp)
 {
-    mutable DenseHashSet<const void*> seen;
+    tp = follow(tp);
 
-    QVarFinder()
-        : seen(nullptr)
-    {
-    }
-
-    bool hasSeen(const void* tv) const
-    {
-        if (seen.contains(tv))
-            return true;
-
-        seen.insert(tv);
-        return false;
-    }
-
-    bool hasGeneric(TypeId tid) const
-    {
-        if (hasSeen(&tid->ty))
-            return false;
-
-        return Luau::visit(*this, tid->ty);
-    }
-
-    bool hasGeneric(TypePackId tp) const
-    {
-        if (hasSeen(&tp->ty))
-            return false;
-
-        return Luau::visit(*this, tp->ty);
-    }
-
-    bool operator()(const Unifiable::Free&) const
-    {
-        return false;
-    }
-
-    bool operator()(const Unifiable::Bound<TypeId>& bound) const
-    {
-        return hasGeneric(bound.boundTo);
-    }
-
-    bool operator()(const Unifiable::Generic&) const
-    {
-        return true;
-    }
-    bool operator()(const Unifiable::Error&) const
-    {
-        return false;
-    }
-    bool operator()(const PrimitiveTypeVar&) const
-    {
-        return false;
-    }
-
-    bool operator()(const SingletonTypeVar&) const
-    {
-        return false;
-    }
-
-    bool operator()(const FunctionTypeVar& ftv) const
-    {
-        if (hasGeneric(ftv.argTypes))
-            return true;
-        return hasGeneric(ftv.retType);
-    }
-
-    bool operator()(const TableTypeVar& ttv) const
-    {
-        if (ttv.state == TableState::Generic)
-            return true;
-
-        if (ttv.indexer)
-        {
-            if (hasGeneric(ttv.indexer->indexType))
-                return true;
-            if (hasGeneric(ttv.indexer->indexResultType))
-                return true;
-        }
-
-        for (const auto& [_name, prop] : ttv.props)
-        {
-            if (hasGeneric(prop.type))
-                return true;
-        }
-
-        return false;
-    }
-
-    bool operator()(const MetatableTypeVar& mtv) const
-    {
-        return hasGeneric(mtv.table) || hasGeneric(mtv.metatable);
-    }
-
-    bool operator()(const ClassTypeVar& ctv) const
-    {
-        for (const auto& [name, prop] : ctv.props)
-        {
-            if (hasGeneric(prop.type))
-                return true;
-        }
-
-        if (ctv.parent)
-            return hasGeneric(*ctv.parent);
-
-        return false;
-    }
-
-    bool operator()(const AnyTypeVar&) const
-    {
-        return false;
-    }
-
-    bool operator()(const UnionTypeVar& utv) const
-    {
-        for (TypeId tid : utv.options)
-            if (hasGeneric(tid))
-                return true;
-
-        return false;
-    }
-
-    bool operator()(const IntersectionTypeVar& utv) const
-    {
-        for (TypeId tid : utv.parts)
-            if (hasGeneric(tid))
-                return true;
-
-        return false;
-    }
-
-    bool operator()(const LazyTypeVar&) const
-    {
-        return false;
-    }
-
-    bool operator()(const Unifiable::Bound<TypePackId>& bound) const
-    {
-        return hasGeneric(bound.boundTo);
-    }
-
-    bool operator()(const TypePack& pack) const
-    {
-        for (TypeId ty : pack.head)
-            if (hasGeneric(ty))
-                return true;
-
-        if (pack.tail)
-            return hasGeneric(*pack.tail);
-
-        return false;
-    }
-
-    bool operator()(const VariadicTypePack& pack) const
-    {
-        return hasGeneric(pack.ty);
-    }
-};
+    if (auto ftv = get<Unifiable::Free>(tp))
+        return ftv->level;
+    else
+        return std::nullopt;
+}
 
 const Property* lookupClassProp(const ClassTypeVar* cls, const Name& name)
 {
@@ -1317,16 +965,6 @@ bool isSubclass(const ClassTypeVar* cls, const ClassTypeVar* parent)
     }
 
     return false;
-}
-
-bool hasGeneric(TypeId ty)
-{
-    return Luau::visit(QVarFinder{}, ty->ty);
-}
-
-bool hasGeneric(TypePackId tp)
-{
-    return Luau::visit(QVarFinder{}, tp->ty);
 }
 
 UnionTypeVarIterator::UnionTypeVarIterator(const UnionTypeVar* utv)
@@ -1463,10 +1101,10 @@ static std::vector<TypeId> parseFormatString(TypeChecker& typechecker, const cha
     return result;
 }
 
-std::optional<ExprResult<TypePackId>> magicFunctionFormat(
-    TypeChecker& typechecker, const ScopePtr& scope, const AstExprCall& expr, ExprResult<TypePackId> exprResult)
+std::optional<WithPredicate<TypePackId>> magicFunctionFormat(
+    TypeChecker& typechecker, const ScopePtr& scope, const AstExprCall& expr, WithPredicate<TypePackId> withPredicate)
 {
-    auto [paramPack, _predicates] = exprResult;
+    auto [paramPack, _predicates] = withPredicate;
 
     TypeArena& arena = typechecker.currentModule->internalTypes;
 
@@ -1488,23 +1126,24 @@ std::optional<ExprResult<TypePackId>> magicFunctionFormat(
     std::vector<TypeId> expected = parseFormatString(typechecker, fmt->value.data, fmt->value.size);
     const auto& [params, tail] = flatten(paramPack);
 
-    const size_t dataOffset = 1;
+    size_t paramOffset = 1;
+    size_t dataOffset = expr.self ? 0 : 1;
 
     // unify the prefix one argument at a time
-    for (size_t i = 0; i < expected.size() && i + dataOffset < params.size(); ++i)
+    for (size_t i = 0; i < expected.size() && i + paramOffset < params.size(); ++i)
     {
-        Location location = expr.args.data[std::min(i, expr.args.size - 1)]->location;
+        Location location = expr.args.data[std::min(i + dataOffset, expr.args.size - 1)]->location;
 
-        typechecker.unify(expected[i], params[i + dataOffset], location);
+        typechecker.unify(params[i + paramOffset], expected[i], location);
     }
 
     // if we know the argument count or if we have too many arguments for sure, we can issue an error
-    const size_t actualParamSize = params.size() - dataOffset;
+    size_t actualParamSize = params.size() - paramOffset;
 
     if (expected.size() != actualParamSize && (!tail || expected.size() < actualParamSize))
         typechecker.reportError(TypeError{expr.location, CountMismatch{expected.size(), actualParamSize}});
 
-    return ExprResult<TypePackId>{arena.addTypePack({typechecker.stringType})};
+    return WithPredicate<TypePackId>{arena.addTypePack({typechecker.stringType})};
 }
 
 std::vector<TypeId> filterMap(TypeId type, TypeIdPredicate predicate)
@@ -1542,30 +1181,14 @@ static Tags* getTags(TypeId ty)
 
 void attachTag(TypeId ty, const std::string& tagName)
 {
-    if (!FFlag::LuauRefactorTagging)
-    {
-        if (auto ftv = getMutable<FunctionTypeVar>(ty))
-        {
-            ftv->tags.emplace_back(tagName);
-        }
-        else
-        {
-            LUAU_ASSERT(!"Got a non functional type");
-        }
-    }
+    if (auto tags = getTags(ty))
+        tags->push_back(tagName);
     else
-    {
-        if (auto tags = getTags(ty))
-            tags->push_back(tagName);
-        else
-            LUAU_ASSERT(!"This TypeId does not support tags");
-    }
+        LUAU_ASSERT(!"This TypeId does not support tags");
 }
 
 void attachTag(Property& prop, const std::string& tagName)
 {
-    LUAU_ASSERT(FFlag::LuauRefactorTagging);
-
     prop.tags.push_back(tagName);
 }
 
@@ -1574,7 +1197,6 @@ void attachTag(Property& prop, const std::string& tagName)
 // Unfortunately, there's already use cases that's hard to disentangle. For now, we expose it.
 bool hasTag(const Tags& tags, const std::string& tagName)
 {
-    LUAU_ASSERT(FFlag::LuauRefactorTagging);
     return std::find(tags.begin(), tags.end(), tagName) != tags.end();
 }
 

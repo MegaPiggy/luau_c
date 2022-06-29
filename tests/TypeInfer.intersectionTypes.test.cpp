@@ -1,5 +1,4 @@
 // This file is part of the Luau programming language and is licensed under MIT License; see LICENSE.txt for details
-#include "Luau/Parser.h"
 #include "Luau/TypeInfer.h"
 #include "Luau/TypeVar.h"
 
@@ -8,6 +7,8 @@
 #include "doctest.h"
 
 using namespace Luau;
+
+LUAU_FASTFLAG(LuauLowerBoundsCalculation);
 
 TEST_SUITE_BEGIN("IntersectionTypes");
 
@@ -185,7 +186,7 @@ TEST_CASE_FIXTURE(Fixture, "index_on_an_intersection_type_works_at_arbitrary_dep
     )");
 
     LUAU_REQUIRE_NO_ERRORS(result);
-    CHECK_EQ(*typeChecker.stringType, *requireType("r"));
+    CHECK_EQ("string & string", toString(requireType("r")));
 }
 
 TEST_CASE_FIXTURE(Fixture, "index_on_an_intersection_type_with_mixed_types")
@@ -219,7 +220,7 @@ TEST_CASE_FIXTURE(Fixture, "index_on_an_intersection_type_with_one_part_missing_
 TEST_CASE_FIXTURE(Fixture, "index_on_an_intersection_type_with_one_property_of_type_any")
 {
     CheckResult result = check(R"(
-        type A = {x: number}
+        type A = {y: number}
         type B = {x: any}
         local t: A & B
 
@@ -305,16 +306,50 @@ TEST_CASE_FIXTURE(Fixture, "table_intersection_write_sealed")
     )");
 
     LUAU_REQUIRE_ERROR_COUNT(1, result);
-    CHECK_EQ(toString(result.errors[0]), "Cannot add property 'z' to table 'X & Y'");
+    if (FFlag::LuauLowerBoundsCalculation)
+        CHECK_EQ(toString(result.errors[0]), "Cannot add property 'z' to table '{| x: number, y: number |}'");
+    else
+        CHECK_EQ(toString(result.errors[0]), "Cannot add property 'z' to table 'X & Y'");
 }
 
 TEST_CASE_FIXTURE(Fixture, "table_intersection_write_sealed_indirect")
 {
     CheckResult result = check(R"(
-    type X = { x: (number) -> number }
-    type Y = { y: (string) -> string }
+        type X = { x: (number) -> number }
+        type Y = { y: (string) -> string }
 
-    type XY = X & Y
+        type XY = X & Y
+
+        local xy : XY = {
+            x = function(a: number) return -a end,
+            y = function(a: string) return a .. "b" end
+        }
+        function xy.z(a:number) return a * 10 end
+        function xy:y(a:number) return a * 10 end
+        function xy:w(a:number) return a * 10 end
+    )");
+
+    LUAU_REQUIRE_ERROR_COUNT(4, result);
+    CHECK_EQ(toString(result.errors[0]), R"(Type '(string, number) -> string' could not be converted into '(string) -> string'
+caused by:
+  Argument count mismatch. Function expects 2 arguments, but only 1 is specified)");
+    if (FFlag::LuauLowerBoundsCalculation)
+        CHECK_EQ(toString(result.errors[1]), "Cannot add property 'z' to table '{| x: (number) -> number, y: (string) -> string |}'");
+    else
+        CHECK_EQ(toString(result.errors[1]), "Cannot add property 'z' to table 'X & Y'");
+    CHECK_EQ(toString(result.errors[2]), "Type 'number' could not be converted into 'string'");
+
+    if (FFlag::LuauLowerBoundsCalculation)
+        CHECK_EQ(toString(result.errors[3]), "Cannot add property 'w' to table '{| x: (number) -> number, y: (string) -> string |}'");
+    else
+        CHECK_EQ(toString(result.errors[3]), "Cannot add property 'w' to table 'X & Y'");
+}
+
+TEST_CASE_FIXTURE(Fixture, "table_write_sealed_indirect")
+{
+    // After normalization, previous 'table_intersection_write_sealed_indirect' is identical to this one
+    CheckResult result = check(R"(
+    type XY = { x: (number) -> number, y: (string) -> string }
 
     local xy : XY = {
         x = function(a: number) return -a end,
@@ -325,13 +360,16 @@ TEST_CASE_FIXTURE(Fixture, "table_intersection_write_sealed_indirect")
     function xy:w(a:number) return a * 10 end
     )");
 
-    LUAU_REQUIRE_ERROR_COUNT(3, result);
-    CHECK_EQ(toString(result.errors[0]), "Cannot add property 'z' to table 'X & Y'");
-    CHECK_EQ(toString(result.errors[1]), "Cannot add property 'y' to table 'X & Y'");
-    CHECK_EQ(toString(result.errors[2]), "Cannot add property 'w' to table 'X & Y'");
+    LUAU_REQUIRE_ERROR_COUNT(4, result);
+    CHECK_EQ(toString(result.errors[0]), R"(Type '(string, number) -> string' could not be converted into '(string) -> string'
+caused by:
+  Argument count mismatch. Function expects 2 arguments, but only 1 is specified)");
+    CHECK_EQ(toString(result.errors[1]), "Cannot add property 'z' to table 'XY'");
+    CHECK_EQ(toString(result.errors[2]), "Type 'number' could not be converted into 'string'");
+    CHECK_EQ(toString(result.errors[3]), "Cannot add property 'w' to table 'XY'");
 }
 
-TEST_CASE_FIXTURE(Fixture, "table_intersection_setmetatable")
+TEST_CASE_FIXTURE(BuiltinsFixture, "table_intersection_setmetatable")
 {
     CheckResult result = check(R"(
         local t: {} & {}
@@ -343,7 +381,7 @@ TEST_CASE_FIXTURE(Fixture, "table_intersection_setmetatable")
 
 TEST_CASE_FIXTURE(Fixture, "error_detailed_intersection_part")
 {
-    ScopedFastFlag luauExtendedTypeMismatchError{"LuauExtendedTypeMismatchError", true};
+    ScopedFastFlag flags[] = {{"LuauLowerBoundsCalculation", false}};
 
     CheckResult result = check(R"(
 type X = { x: number }
@@ -363,7 +401,7 @@ caused by:
 
 TEST_CASE_FIXTURE(Fixture, "error_detailed_intersection_all")
 {
-    ScopedFastFlag luauExtendedTypeMismatchError{"LuauExtendedTypeMismatchError", true};
+    ScopedFastFlag flags[] = {{"LuauLowerBoundsCalculation", false}};
 
     CheckResult result = check(R"(
 type X = { x: number }
@@ -378,6 +416,34 @@ local b: number = a
 
     LUAU_REQUIRE_ERROR_COUNT(1, result);
     CHECK_EQ(toString(result.errors[0]), R"(Type 'X & Y & Z' could not be converted into 'number'; none of the intersection parts are compatible)");
+}
+
+TEST_CASE_FIXTURE(Fixture, "overload_is_not_a_function")
+{
+    check(R"(
+--!nonstrict
+function _(...):((typeof(not _))&(typeof(not _)))&((typeof(not _))&(typeof(not _)))
+_(...)(setfenv,_,not _,"")[_] = nil
+end
+do end
+_(...)(...,setfenv,_):_G()
+)");
+}
+
+TEST_CASE_FIXTURE(Fixture, "no_stack_overflow_from_flattenintersection")
+{
+    CheckResult result = check(R"(
+        local l0,l0
+        repeat
+        type t0 = ((any)|((any)&((any)|((any)&((any)|(any))))))&(t0)
+        function _(l0):(t0)&(t0)
+            while nil do
+            end
+        end
+        until _(_)(_)._
+    )");
+
+    LUAU_REQUIRE_ERRORS(result);
 }
 
 TEST_SUITE_END();

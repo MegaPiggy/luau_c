@@ -8,8 +8,6 @@
 #include <string.h>
 #include <stdio.h>
 
-LUAU_FASTFLAGVARIABLE(LuauStrPackUBCastFix, false)
-
 /* macro to `unsign' a character */
 #define uchar(c) ((unsigned char)(c))
 
@@ -1413,20 +1411,10 @@ static int str_pack(lua_State* L)
         }
         case Kuint:
         { /* unsigned integers */
-            if (FFlag::LuauStrPackUBCastFix)
-            {
-                long long n = (long long)luaL_checknumber(L, arg);
-                if (size < SZINT) /* need overflow check? */
-                    luaL_argcheck(L, (unsigned long long)n < ((unsigned long long)1 << (size * NB)), arg, "unsigned overflow");
-                packint(&b, (unsigned long long)n, h.islittle, size, 0);
-            }
-            else
-            {
-                unsigned long long n = (unsigned long long)luaL_checknumber(L, arg);
-                if (size < SZINT) /* need overflow check? */
-                    luaL_argcheck(L, n < ((unsigned long long)1 << (size * NB)), arg, "unsigned overflow");
-                packint(&b, n, h.islittle, size, 0);
-            }
+            long long n = (long long)luaL_checknumber(L, arg);
+            if (size < SZINT) /* need overflow check? */
+                luaL_argcheck(L, (unsigned long long)n < ((unsigned long long)1 << (size * NB)), arg, "unsigned overflow");
+            packint(&b, (unsigned long long)n, h.islittle, size, 0);
             break;
         }
         case Kfloat:
@@ -1681,7 +1669,7 @@ static void createmetatable(lua_State* L)
 /*
 ** Open string library
 */
-LUALIB_API int luaopen_string(lua_State* L)
+int luaopen_string(lua_State* L)
 {
     luaL_register(L, LUA_STRLIBNAME, strlib);
     createmetatable(L);

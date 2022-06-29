@@ -180,6 +180,11 @@ x,y,z=nil
 collectgarbage()
 assert(next(a) == string.rep('$', 11))
 
+-- shrinking tables reduce their capacity; confirming the shrinking is difficult but we can at least test the surface level behavior
+a = {}; setmetatable(a, {__mode = 'ks'})
+for i=1,lim do a[{}] = i end
+collectgarbage()
+assert(next(a) == nil)
 
 -- testing userdata
 collectgarbage("stop")   -- stop collection
@@ -289,6 +294,32 @@ do
   getmetatable(u).__gc = function (o) return o + 1 end
   table.insert(___Glob, u)  -- preserve udata until the end
   for i = 1,10 do table.insert(___Glob, newproxy(true)) end
+end
+
+-- create threads that die together with their unmarked upvalues
+do
+  local t = {}
+
+  for i = 1,100 do
+    local c = coroutine.wrap(function()
+      local uv = {i + 1}
+      local function f()
+        return uv[1] * 10
+      end
+      coroutine.yield(uv[1])
+      uv = {i + 2}
+      coroutine.yield(f())
+    end)
+
+    assert(c() == i + 1)
+    table.insert(t, c)
+  end
+
+  for i = 1,100 do
+    t[i] = nil
+  end
+
+  collectgarbage()
 end
 
 return('OK')

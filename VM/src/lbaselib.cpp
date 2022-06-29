@@ -5,6 +5,7 @@
 #include "lstate.h"
 #include "lapi.h"
 #include "ldo.h"
+#include "ludata.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -36,12 +37,14 @@ static int luaB_tonumber(lua_State* L)
     int base = luaL_optinteger(L, 2, 10);
     if (base == 10)
     { /* standard conversion */
-        luaL_checkany(L, 1);
-        if (lua_isnumber(L, 1))
+        int isnum = 0;
+        double n = lua_tonumberx(L, 1, &isnum);
+        if (isnum)
         {
-            lua_pushnumber(L, lua_tonumber(L, 1));
+            lua_pushnumber(L, n);
             return 1;
         }
+        luaL_checkany(L, 1); /* error if we don't have any argument */
     }
     else
     {
@@ -184,15 +187,16 @@ static int luaB_gcinfo(lua_State* L)
 static int luaB_type(lua_State* L)
 {
     luaL_checkany(L, 1);
-    lua_pushstring(L, luaL_typename(L, 1));
+    /* resulting name doesn't differentiate between userdata types */
+    lua_pushstring(L, lua_typename(L, lua_type(L, 1)));
     return 1;
 }
 
 static int luaB_typeof(lua_State* L)
 {
     luaL_checkany(L, 1);
-    const TValue* obj = luaA_toobject(L, 1);
-    lua_pushstring(L, luaT_objtypename(L, obj));
+    /* resulting name returns __type if specified unless the input is a newproxy-created userdata */
+    lua_pushstring(L, luaL_typename(L, 1));
     return 1;
 }
 
@@ -401,7 +405,7 @@ static int luaB_newproxy(lua_State* L)
 
     bool needsmt = lua_toboolean(L, 1);
 
-    lua_newuserdata(L, 0, 0);
+    lua_newuserdatatagged(L, 0, UTAG_PROXY);
 
     if (needsmt)
     {
@@ -460,7 +464,7 @@ static void auxopen(lua_State* L, const char* name, lua_CFunction f, lua_CFuncti
     lua_setfield(L, -2, name);
 }
 
-LUALIB_API int luaopen_base(lua_State* L)
+int luaopen_base(lua_State* L)
 {
     /* set global _G */
     lua_pushvalue(L, LUA_GLOBALSINDEX);

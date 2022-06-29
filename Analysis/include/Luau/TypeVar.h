@@ -1,6 +1,7 @@
 // This file is part of the Luau programming language and is licensed under MIT License; see LICENSE.txt for details
 #pragma once
 
+#include "Luau/DenseHash.h"
 #include "Luau/Predicate.h"
 #include "Luau/Unifiable.h"
 #include "Luau/Variant.h"
@@ -23,6 +24,7 @@ namespace Luau
 {
 
 struct TypeArena;
+struct Scope2;
 
 /**
  * There are three kinds of type variables:
@@ -82,6 +84,24 @@ using Tags = std::vector<std::string>;
 
 using ModuleName = std::string;
 
+/** A TypeVar that cannot be computed.
+ *
+ * BlockedTypeVars essentially serve as a way to encode partial ordering on the
+ * constraint graph. Until a BlockedTypeVar is unblocked by its owning
+ * constraint, nothing at all can be said about it. Constraints that need to
+ * process a BlockedTypeVar cannot be dispatched.
+ *
+ * Whenever a BlockedTypeVar is added to the graph, we also record a constraint
+ * that will eventually unblock it.
+ */
+struct BlockedTypeVar
+{
+    BlockedTypeVar();
+    int index;
+
+    static int nextIndex;
+};
+
 struct PrimitiveTypeVar
 {
     enum Type
@@ -108,18 +128,36 @@ struct PrimitiveTypeVar
     }
 };
 
+struct ConstrainedTypeVar
+{
+    explicit ConstrainedTypeVar(TypeLevel level)
+        : level(level)
+    {
+    }
+
+    explicit ConstrainedTypeVar(TypeLevel level, const std::vector<TypeId>& parts)
+        : parts(parts)
+        , level(level)
+    {
+    }
+
+    std::vector<TypeId> parts;
+    TypeLevel level;
+    Scope2* scope = nullptr;
+};
+
 // Singleton types https://github.com/Roblox/luau/blob/master/rfcs/syntax-singleton-types.md
 // Types for true and false
-struct BoolSingleton
+struct BooleanSingleton
 {
     bool value;
 
-    bool operator==(const BoolSingleton& rhs) const
+    bool operator==(const BooleanSingleton& rhs) const
     {
         return value == rhs.value;
     }
 
-    bool operator!=(const BoolSingleton& rhs) const
+    bool operator!=(const BooleanSingleton& rhs) const
     {
         return !(*this == rhs);
     }
@@ -144,7 +182,7 @@ struct StringSingleton
 // No type for float singletons, partly because === isn't any equalivalence on floats
 // (NaN != NaN).
 
-using SingletonVariant = Luau::Variant<BoolSingleton, StringSingleton>;
+using SingletonVariant = Luau::Variant<BooleanSingleton, StringSingleton>;
 
 struct SingletonTypeVar
 {
@@ -181,6 +219,18 @@ const T* get(const SingletonTypeVar* stv)
         return nullptr;
 }
 
+struct GenericTypeDefinition
+{
+    TypeId ty;
+    std::optional<TypeId> defaultValue;
+};
+
+struct GenericTypePackDefinition
+{
+    TypePackId tp;
+    std::optional<TypePackId> defaultValue;
+};
+
 struct FunctionArgument
 {
     Name name;
@@ -199,42 +249,44 @@ struct FunctionDefinition
 // TODO: Do we actually need this? We'll find out later if we can delete this.
 // Does not exactly belong in TypeVar.h, but this is the only way to appease the compiler.
 template<typename T>
-struct ExprResult
+struct WithPredicate
 {
     T type;
     PredicateVec predicates;
 };
 
-using MagicFunction = std::function<std::optional<ExprResult<TypePackId>>(
-    struct TypeChecker&, const std::shared_ptr<struct Scope>&, const class AstExprCall&, ExprResult<TypePackId>)>;
+using MagicFunction = std::function<std::optional<WithPredicate<TypePackId>>(
+    struct TypeChecker&, const std::shared_ptr<struct Scope>&, const class AstExprCall&, WithPredicate<TypePackId>)>;
 
 struct FunctionTypeVar
 {
     // Global monomorphic function
-    FunctionTypeVar(TypePackId argTypes, TypePackId retType, std::optional<FunctionDefinition> defn = {}, bool hasSelf = false);
+    FunctionTypeVar(TypePackId argTypes, TypePackId retTypes, std::optional<FunctionDefinition> defn = {}, bool hasSelf = false);
 
     // Global polymorphic function
-    FunctionTypeVar(std::vector<TypeId> generics, std::vector<TypePackId> genericPacks, TypePackId argTypes, TypePackId retType,
+    FunctionTypeVar(std::vector<TypeId> generics, std::vector<TypePackId> genericPacks, TypePackId argTypes, TypePackId retTypes,
         std::optional<FunctionDefinition> defn = {}, bool hasSelf = false);
 
     // Local monomorphic function
-    FunctionTypeVar(TypeLevel level, TypePackId argTypes, TypePackId retType, std::optional<FunctionDefinition> defn = {}, bool hasSelf = false);
+    FunctionTypeVar(TypeLevel level, TypePackId argTypes, TypePackId retTypes, std::optional<FunctionDefinition> defn = {}, bool hasSelf = false);
 
     // Local polymorphic function
-    FunctionTypeVar(TypeLevel level, std::vector<TypeId> generics, std::vector<TypePackId> genericPacks, TypePackId argTypes, TypePackId retType,
+    FunctionTypeVar(TypeLevel level, std::vector<TypeId> generics, std::vector<TypePackId> genericPacks, TypePackId argTypes, TypePackId retTypes,
         std::optional<FunctionDefinition> defn = {}, bool hasSelf = false);
 
     TypeLevel level;
+    Scope2* scope = nullptr;
     /// These should all be generic
     std::vector<TypeId> generics;
     std::vector<TypePackId> genericPacks;
     TypePackId argTypes;
     std::vector<std::optional<FunctionArgument>> argNames;
-    TypePackId retType;
+    TypePackId retTypes;
     std::optional<FunctionDefinition> definition;
     MagicFunction magicFunction = nullptr; // Function pointer, can be nullptr.
     bool hasSelf;
     Tags tags;
+    bool hasNoGenerics = false;
 };
 
 enum class TableState
@@ -285,20 +337,20 @@ struct TableTypeVar
 
     TableTypeVar() = default;
     explicit TableTypeVar(TableState state, TypeLevel level);
-    TableTypeVar(const Props& props, const std::optional<TableIndexer>& indexer, TypeLevel level, TableState state = TableState::Unsealed);
+    TableTypeVar(const Props& props, const std::optional<TableIndexer>& indexer, TypeLevel level, TableState state);
 
     Props props;
     std::optional<TableIndexer> indexer;
 
     TableState state = TableState::Unsealed;
     TypeLevel level;
+    Scope2* scope = nullptr;
     std::optional<std::string> name;
 
     // Sometimes we throw a type on a name to make for nicer error messages, but without creating any entry in the type namespace
     // We need to know which is which when we stringify types.
     std::optional<std::string> syntheticName;
 
-    std::map<Name, Location> methodDefinitionLocations;
     std::vector<TypeId> instantiatedTypeParams;
     std::vector<TypePackId> instantiatedTypePackParams;
     ModuleName definitionModuleName;
@@ -342,15 +394,17 @@ struct ClassTypeVar
     std::optional<TypeId> metatable; // metaclass?
     Tags tags;
     std::shared_ptr<ClassUserData> userData;
+    ModuleName definitionModuleName;
 
-    ClassTypeVar(
-        Name name, Props props, std::optional<TypeId> parent, std::optional<TypeId> metatable, Tags tags, std::shared_ptr<ClassUserData> userData)
+    ClassTypeVar(Name name, Props props, std::optional<TypeId> parent, std::optional<TypeId> metatable, Tags tags,
+        std::shared_ptr<ClassUserData> userData, ModuleName definitionModuleName)
         : name(name)
         , props(props)
         , parent(parent)
         , metatable(metatable)
         , tags(tags)
         , userData(userData)
+        , definitionModuleName(definitionModuleName)
     {
     }
 };
@@ -358,8 +412,8 @@ struct ClassTypeVar
 struct TypeFun
 {
     // These should all be generic
-    std::vector<TypeId> typeParams;
-    std::vector<TypePackId> typePackParams;
+    std::vector<GenericTypeDefinition> typeParams;
+    std::vector<GenericTypePackDefinition> typePackParams;
 
     /** The underlying type.
      *
@@ -369,13 +423,13 @@ struct TypeFun
     TypeId type;
 
     TypeFun() = default;
-    TypeFun(std::vector<TypeId> typeParams, TypeId type)
+    TypeFun(std::vector<GenericTypeDefinition> typeParams, TypeId type)
         : typeParams(std::move(typeParams))
         , type(type)
     {
     }
 
-    TypeFun(std::vector<TypeId> typeParams, std::vector<TypePackId> typePackParams, TypeId type)
+    TypeFun(std::vector<GenericTypeDefinition> typeParams, std::vector<GenericTypePackDefinition> typePackParams, TypeId type)
         : typeParams(std::move(typeParams))
         , typePackParams(std::move(typePackParams))
         , type(type)
@@ -405,8 +459,8 @@ struct LazyTypeVar
 
 using ErrorTypeVar = Unifiable::Error;
 
-using TypeVariant = Unifiable::Variant<TypeId, PrimitiveTypeVar, SingletonTypeVar, FunctionTypeVar, TableTypeVar, MetatableTypeVar, ClassTypeVar,
-    AnyTypeVar, UnionTypeVar, IntersectionTypeVar, LazyTypeVar>;
+using TypeVariant = Unifiable::Variant<TypeId, PrimitiveTypeVar, ConstrainedTypeVar, BlockedTypeVar, SingletonTypeVar, FunctionTypeVar, TableTypeVar,
+    MetatableTypeVar, ClassTypeVar, AnyTypeVar, UnionTypeVar, IntersectionTypeVar, LazyTypeVar>;
 
 struct TypeVar final
 {
@@ -423,7 +477,16 @@ struct TypeVar final
     TypeVar(const TypeVariant& ty, bool persistent)
         : ty(ty)
         , persistent(persistent)
+        , normal(persistent) // We assume that all persistent types are irreducable.
     {
+    }
+
+    // Re-assignes the content of the type, but doesn't change the owning arena and can't make type persistent.
+    void reassign(const TypeVar& rhs)
+    {
+        ty = rhs.ty;
+        normal = rhs.normal;
+        documentationSymbol = rhs.documentationSymbol;
     }
 
     TypeVariant ty;
@@ -433,12 +496,13 @@ struct TypeVar final
     // Persistent TypeVars do not get cloned.
     bool persistent = false;
 
+    // Normalization sets this for types that are fully normalized.
+    // This implies that they are transitively immutable.
+    bool normal = false;
+
     std::optional<std::string> documentationSymbol;
 
     // Pointer to the type arena that allocated this type.
-    // Do not depend on the value of this under any circumstances. This is for
-    // debugging purposes only. This is only set in debug builds; it is nullptr
-    // in all other environments.
     TypeArena* owningArena = nullptr;
 
     bool operator==(const TypeVar& rhs) const;
@@ -446,13 +510,16 @@ struct TypeVar final
 
     TypeVar& operator=(const TypeVariant& rhs);
     TypeVar& operator=(TypeVariant&& rhs);
+
+    TypeVar& operator=(const TypeVar& rhs);
 };
 
-using SeenSet = std::set<std::pair<void*, void*>>;
+using SeenSet = std::set<std::pair<const void*, const void*>>;
 bool areEqual(SeenSet& seen, const TypeVar& lhs, const TypeVar& rhs);
 
 // Follow BoundTypeVars until we get to something real
 TypeId follow(TypeId t);
+TypeId follow(TypeId t, std::function<TypeId(TypeId)> mapper);
 
 std::vector<TypeId> flattenIntersection(TypeId ty);
 
@@ -466,6 +533,9 @@ bool isOptional(TypeId ty);
 bool isTableIntersection(TypeId ty);
 bool isOverloadedFunction(TypeId ty);
 
+// True when string is a subtype of ty
+bool maybeString(TypeId ty);
+
 std::optional<TypeId> getMetatable(TypeId type);
 TableTypeVar* getMutableTableType(TypeId type);
 const TableTypeVar* getTableType(TypeId type);
@@ -473,6 +543,9 @@ const TableTypeVar* getTableType(TypeId type);
 // If the type has a name, return that.  Else if it has a synthetic name, return that.
 // Returns nullptr if the type has no name.
 const std::string* getName(TypeId type);
+
+// Returns name of the module where type was defined if type has that information
+std::optional<ModuleName> getDefinitionModuleName(TypeId type);
 
 // Checks whether a union contains all types of another union.
 bool isSubset(const UnionTypeVar& super, const UnionTypeVar& sub);
@@ -486,6 +559,9 @@ bool maybeGeneric(const TypeId ty);
 // Checks if a type is of the form T1|...|Tn where one of the Ti is a singleton
 bool maybeSingleton(TypeId ty);
 
+// Checks if the length operator can be applied on the value of type
+bool hasLength(TypeId ty, DenseHashSet<TypeId>& seen, int* recursionCount);
+
 struct SingletonTypes
 {
     const TypeId nilType;
@@ -493,12 +569,14 @@ struct SingletonTypes
     const TypeId stringType;
     const TypeId booleanType;
     const TypeId threadType;
+    const TypeId trueType;
+    const TypeId falseType;
     const TypeId anyType;
-    const TypeId optionalNumberType;
 
     const TypePackId anyTypePack;
 
     SingletonTypes();
+    ~SingletonTypes();
     SingletonTypes(const SingletonTypes&) = delete;
     void operator=(const SingletonTypes&) = delete;
 
@@ -509,37 +587,23 @@ struct SingletonTypes
 
 private:
     std::unique_ptr<struct TypeArena> arena;
+    bool debugFreezeArena = false;
+
     TypeId makeStringMetatable();
 };
 
-extern SingletonTypes singletonTypes;
+SingletonTypes& getSingletonTypes();
 
 void persist(TypeId ty);
 void persist(TypePackId tp);
 
-struct ToDotOptions
-{
-    bool showPointers = true;        // Show pointer value in the node label
-    bool duplicatePrimitives = true; // Display primitive types and 'any' as separate nodes
-};
-
-std::string toDot(TypeId ty, const ToDotOptions& opts);
-std::string toDot(TypePackId tp, const ToDotOptions& opts);
-
-std::string toDot(TypeId ty);
-std::string toDot(TypePackId tp);
-
-void dumpDot(TypeId ty);
-void dumpDot(TypePackId tp);
-
 const TypeLevel* getLevel(TypeId ty);
 TypeLevel* getMutableLevel(TypeId ty);
 
+std::optional<TypeLevel> getLevel(TypePackId tp);
+
 const Property* lookupClassProp(const ClassTypeVar* cls, const Name& name);
 bool isSubclass(const ClassTypeVar* cls, const ClassTypeVar* parent);
-
-bool hasGeneric(TypeId ty);
-bool hasGeneric(TypePackId tp);
 
 TypeVar* asMutable(TypeId ty);
 

@@ -1,6 +1,5 @@
 // This file is part of the Luau programming language and is licensed under MIT License; see LICENSE.txt for details
 #include "Luau/BuiltinDefinitions.h"
-#include "Luau/Parser.h"
 #include "Luau/TypeInfer.h"
 #include "Luau/TypeVar.h"
 
@@ -9,6 +8,8 @@
 #include "doctest.h"
 
 using namespace Luau;
+
+LUAU_FASTFLAG(LuauLowerBoundsCalculation);
 
 TEST_SUITE_BEGIN("TypePackTests");
 
@@ -25,11 +26,11 @@ TEST_CASE_FIXTURE(Fixture, "infer_multi_return")
     const FunctionTypeVar* takeTwoType = get<FunctionTypeVar>(requireType("take_two"));
     REQUIRE(takeTwoType != nullptr);
 
-    const auto& [returns, tail] = flatten(takeTwoType->retType);
+    const auto& [returns, tail] = flatten(takeTwoType->retTypes);
 
     CHECK_EQ(2, returns.size());
-    CHECK_EQ(typeChecker.numberType, returns[0]);
-    CHECK_EQ(typeChecker.numberType, returns[1]);
+    CHECK_EQ(typeChecker.numberType, follow(returns[0]));
+    CHECK_EQ(typeChecker.numberType, follow(returns[1]));
 
     CHECK(!tail);
 }
@@ -72,12 +73,12 @@ TEST_CASE_FIXTURE(Fixture, "last_element_of_return_statement_can_itself_be_a_pac
     const FunctionTypeVar* takeOneMoreType = get<FunctionTypeVar>(requireType("take_three"));
     REQUIRE(takeOneMoreType != nullptr);
 
-    const auto& [rets, tail] = flatten(takeOneMoreType->retType);
+    const auto& [rets, tail] = flatten(takeOneMoreType->retTypes);
 
     REQUIRE_EQ(3, rets.size());
-    CHECK_EQ(typeChecker.numberType, rets[0]);
-    CHECK_EQ(typeChecker.numberType, rets[1]);
-    CHECK_EQ(typeChecker.numberType, rets[2]);
+    CHECK_EQ(typeChecker.numberType, follow(rets[0]));
+    CHECK_EQ(typeChecker.numberType, follow(rets[1]));
+    CHECK_EQ(typeChecker.numberType, follow(rets[2]));
 
     CHECK(!tail);
 }
@@ -92,26 +93,7 @@ TEST_CASE_FIXTURE(Fixture, "higher_order_function")
 
     LUAU_REQUIRE_NO_ERRORS(result);
 
-    const FunctionTypeVar* applyType = get<FunctionTypeVar>(requireType("apply"));
-    REQUIRE(applyType != nullptr);
-
-    std::vector<TypeId> applyArgs = flatten(applyType->argTypes).first;
-    REQUIRE_EQ(3, applyArgs.size());
-
-    const FunctionTypeVar* fType = get<FunctionTypeVar>(follow(applyArgs[0]));
-    REQUIRE(fType != nullptr);
-
-    const FunctionTypeVar* gType = get<FunctionTypeVar>(follow(applyArgs[1]));
-    REQUIRE(gType != nullptr);
-
-    std::vector<TypeId> gArgs = flatten(gType->argTypes).first;
-    REQUIRE_EQ(1, gArgs.size());
-
-    // function(function(t1, T2...): (t3, T4...), function(t5): (t1, T2...), t5): (t3, T4...)
-
-    REQUIRE_EQ(*gArgs[0], *applyArgs[2]);
-    REQUIRE_EQ(toString(fType->argTypes), toString(gType->retType));
-    REQUIRE_EQ(toString(fType->retType), toString(applyType->retType));
+    CHECK_EQ("<a, b..., c...>((b...) -> (c...), (a) -> (b...), a) -> (c...)", toString(requireType("apply")));
 }
 
 TEST_CASE_FIXTURE(Fixture, "return_type_should_be_empty_if_nothing_is_returned")
@@ -123,10 +105,10 @@ TEST_CASE_FIXTURE(Fixture, "return_type_should_be_empty_if_nothing_is_returned")
     LUAU_REQUIRE_NO_ERRORS(result);
     const FunctionTypeVar* fTy = get<FunctionTypeVar>(requireType("f"));
     REQUIRE(fTy != nullptr);
-    CHECK_EQ(0, size(fTy->retType));
+    CHECK_EQ(0, size(fTy->retTypes));
     const FunctionTypeVar* gTy = get<FunctionTypeVar>(requireType("g"));
     REQUIRE(gTy != nullptr);
-    CHECK_EQ(0, size(gTy->retType));
+    CHECK_EQ(0, size(gTy->retTypes));
 }
 
 TEST_CASE_FIXTURE(Fixture, "no_return_size_should_be_zero")
@@ -143,15 +125,15 @@ TEST_CASE_FIXTURE(Fixture, "no_return_size_should_be_zero")
 
     const FunctionTypeVar* fTy = get<FunctionTypeVar>(requireType("f"));
     REQUIRE(fTy != nullptr);
-    CHECK_EQ(1, size(follow(fTy->retType)));
+    CHECK_EQ(1, size(follow(fTy->retTypes)));
 
     const FunctionTypeVar* gTy = get<FunctionTypeVar>(requireType("g"));
     REQUIRE(gTy != nullptr);
-    CHECK_EQ(0, size(gTy->retType));
+    CHECK_EQ(0, size(gTy->retTypes));
 
     const FunctionTypeVar* hTy = get<FunctionTypeVar>(requireType("h"));
     REQUIRE(hTy != nullptr);
-    CHECK_EQ(0, size(hTy->retType));
+    CHECK_EQ(0, size(hTy->retTypes));
 }
 
 TEST_CASE_FIXTURE(Fixture, "varargs_inference_through_multiple_scopes")
@@ -263,8 +245,7 @@ TEST_CASE_FIXTURE(Fixture, "variadic_pack_syntax")
     CHECK_EQ(toString(requireType("foo")), "(...number) -> ()");
 }
 
-// CLI-45791
-TEST_CASE_FIXTURE(UnfrozenFixture, "type_pack_hidden_free_tail_infinite_growth")
+TEST_CASE_FIXTURE(Fixture, "type_pack_hidden_free_tail_infinite_growth")
 {
     CheckResult result = check(R"(
 --!nonstrict
@@ -296,9 +277,6 @@ end
 
 TEST_CASE_FIXTURE(Fixture, "type_alias_type_packs")
 {
-    ScopedFastFlag luauTypeAliasPacks("LuauTypeAliasPacks", true);
-    ScopedFastFlag luauParseTypePackTypeParameters("LuauParseTypePackTypeParameters", true);
-
     CheckResult result = check(R"(
 type Packed<T...> = (T...) -> T...
 local a: Packed<>
@@ -333,7 +311,10 @@ local c: Packed<string, number, boolean>
     auto ttvA = get<TableTypeVar>(requireType("a"));
     REQUIRE(ttvA);
     CHECK_EQ(toString(requireType("a")), "Packed<number>");
-    CHECK_EQ(toString(requireType("a"), {true}), "{| f: (number) -> (number) |}");
+    if (FFlag::LuauLowerBoundsCalculation)
+        CHECK_EQ(toString(requireType("a"), {true}), "{| f: (number) -> number |}");
+    else
+        CHECK_EQ(toString(requireType("a"), {true}), "{| f: (number) -> (number) |}");
     REQUIRE(ttvA->instantiatedTypeParams.size() == 1);
     REQUIRE(ttvA->instantiatedTypePackParams.size() == 1);
     CHECK_EQ(toString(ttvA->instantiatedTypeParams[0], {true}), "number");
@@ -358,11 +339,8 @@ local c: Packed<string, number, boolean>
     CHECK_EQ(toString(ttvC->instantiatedTypePackParams[0], {true}), "number, boolean");
 }
 
-TEST_CASE_FIXTURE(Fixture, "type_alias_type_packs_import")
+TEST_CASE_FIXTURE(BuiltinsFixture, "type_alias_type_packs_import")
 {
-    ScopedFastFlag luauTypeAliasPacks("LuauTypeAliasPacks", true);
-    ScopedFastFlag luauParseTypePackTypeParameters("LuauParseTypePackTypeParameters", true);
-
     fileResolver.source["game/A"] = R"(
 export type Packed<T, U...> = { a: T, b: (U...) -> () }
 return {}
@@ -391,11 +369,8 @@ local d: { a: typeof(c) }
     CHECK_EQ(toString(requireType("d")), "{| a: Packed<string, number, boolean> |}");
 }
 
-TEST_CASE_FIXTURE(Fixture, "type_pack_type_parameters")
+TEST_CASE_FIXTURE(BuiltinsFixture, "type_pack_type_parameters")
 {
-    ScopedFastFlag luauTypeAliasPacks("LuauTypeAliasPacks", true);
-    ScopedFastFlag luauParseTypePackTypeParameters("LuauParseTypePackTypeParameters", true);
-
     fileResolver.source["game/A"] = R"(
 export type Packed<T, U...> = { a: T, b: (U...) -> () }
 return {}
@@ -431,9 +406,6 @@ type C<X...> = Import.Packed<string, (number, X...)>
 
 TEST_CASE_FIXTURE(Fixture, "type_alias_type_packs_nested")
 {
-    ScopedFastFlag luauTypeAliasPacks("LuauTypeAliasPacks", true);
-    ScopedFastFlag luauParseTypePackTypeParameters("LuauParseTypePackTypeParameters", true);
-
     CheckResult result = check(R"(
 type Packed1<T...> = (T...) -> (T...)
 type Packed2<T...> = (Packed1<T...>, T...) -> (Packed1<T...>, T...)
@@ -452,9 +424,6 @@ type Packed4<T...> = (Packed3<T...>, T...) -> (Packed3<T...>, T...)
 
 TEST_CASE_FIXTURE(Fixture, "type_alias_type_pack_variadic")
 {
-    ScopedFastFlag luauTypeAliasPacks("LuauTypeAliasPacks", true);
-    ScopedFastFlag luauParseTypePackTypeParameters("LuauParseTypePackTypeParameters", true);
-
     CheckResult result = check(R"(
 type X<T...> = (T...) -> (string, T...)
 
@@ -470,9 +439,6 @@ type E = X<(number, ...string)>
 
 TEST_CASE_FIXTURE(Fixture, "type_alias_type_pack_multi")
 {
-    ScopedFastFlag luauTypeAliasPacks("LuauTypeAliasPacks", true);
-    ScopedFastFlag luauParseTypePackTypeParameters("LuauParseTypePackTypeParameters", true);
-
     CheckResult result = check(R"(
 type Y<T..., U...> = (T...) -> (U...)
 type A<S...> = Y<S..., S...>
@@ -501,9 +467,6 @@ type I<S..., R...> = W<number, (string, S...), R...>
 
 TEST_CASE_FIXTURE(Fixture, "type_alias_type_pack_explicit")
 {
-    ScopedFastFlag luauTypeAliasPacks("LuauTypeAliasPacks", true);
-    ScopedFastFlag luauParseTypePackTypeParameters("LuauParseTypePackTypeParameters", true);
-
     CheckResult result = check(R"(
 type X<T...> = (T...) -> (T...)
 
@@ -527,9 +490,6 @@ type F = X<(string, ...number)>
 
 TEST_CASE_FIXTURE(Fixture, "type_alias_type_pack_explicit_multi")
 {
-    ScopedFastFlag luauTypeAliasPacks("LuauTypeAliasPacks", true);
-    ScopedFastFlag luauParseTypePackTypeParameters("LuauParseTypePackTypeParameters", true);
-
     CheckResult result = check(R"(
 type Y<T..., U...> = (T...) -> (U...)
 
@@ -549,9 +509,6 @@ type D<X...> = Y<X..., (number, string, X...)>
 
 TEST_CASE_FIXTURE(Fixture, "type_alias_type_pack_explicit_multi_tostring")
 {
-    ScopedFastFlag luauTypeAliasPacks("LuauTypeAliasPacks", true);
-    ScopedFastFlag luauParseTypePackTypeParameters("LuauParseTypePackTypeParameters", true);
-
     CheckResult result = check(R"(
 type Y<T..., U...> = { f: (T...) -> (U...) }
 
@@ -567,9 +524,6 @@ local b: Y<(), ()>
 
 TEST_CASE_FIXTURE(Fixture, "type_alias_backwards_compatible")
 {
-    ScopedFastFlag luauTypeAliasPacks("LuauTypeAliasPacks", true);
-    ScopedFastFlag luauParseTypePackTypeParameters("LuauParseTypePackTypeParameters", true);
-
     CheckResult result = check(R"(
 type X<T> = () -> T
 type Y<T, U> = (T) -> U
@@ -588,9 +542,6 @@ type C = Y<(number), boolean>
 
 TEST_CASE_FIXTURE(Fixture, "type_alias_type_packs_errors")
 {
-    ScopedFastFlag luauTypeAliasPacks("LuauTypeAliasPacks", true);
-    ScopedFastFlag luauParseTypePackTypeParameters("LuauParseTypePackTypeParameters", true);
-
     CheckResult result = check(R"(
 type Packed<T, U, V...> = (T, U) -> (V...)
 local b: Packed<number>
@@ -646,6 +597,371 @@ type Other = Packed<number, string>
 
     LUAU_REQUIRE_ERROR_COUNT(1, result);
     CHECK_EQ(toString(result.errors[0]), "Generic type 'Packed<T..., U...>' expects 2 type pack arguments, but only 1 is specified");
+}
+
+TEST_CASE_FIXTURE(Fixture, "type_alias_default_type_explicit")
+{
+    CheckResult result = check(R"(
+type Y<T, U = string> = { a: T, b: U }
+
+local a: Y<number, number> = { a = 2, b = 3 }
+local b: Y<number> = { a = 2, b = "s" }
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    CHECK_EQ(toString(requireType("a")), "Y<number, number>");
+    CHECK_EQ(toString(requireType("b")), "Y<number, string>");
+
+    result = check(R"(
+type Y<T = string> = { a: T }
+
+local a: Y<number> = { a = 2 }
+local b: Y<> = { a = "s" }
+local c: Y = { a = "s" }
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    CHECK_EQ(toString(requireType("a")), "Y<number>");
+    CHECK_EQ(toString(requireType("b")), "Y<string>");
+    CHECK_EQ(toString(requireType("c")), "Y<string>");
+}
+
+TEST_CASE_FIXTURE(Fixture, "type_alias_default_type_self")
+{
+    CheckResult result = check(R"(
+type Y<T, U = T> = { a: T, b: U }
+
+local a: Y<number> = { a = 2, b = 3 }
+local b: Y<string> = { a = "h", b = "s" }
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    CHECK_EQ(toString(requireType("a")), "Y<number, number>");
+    CHECK_EQ(toString(requireType("b")), "Y<string, string>");
+
+    result = check(R"(
+type Y<T, U = (T, T) -> string> = { a: T, b: U }
+
+local a: Y<number>
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    CHECK_EQ(toString(requireType("a")), "Y<number, (number, number) -> string>");
+}
+
+TEST_CASE_FIXTURE(Fixture, "type_alias_default_type_chained")
+{
+    CheckResult result = check(R"(
+type Y<T, U = T, V = U> = { a: T, b: U, c: V }
+
+local a: Y<number>
+local b: Y<number, string>
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    CHECK_EQ(toString(requireType("a")), "Y<number, number, number>");
+    CHECK_EQ(toString(requireType("b")), "Y<number, string, string>");
+}
+
+TEST_CASE_FIXTURE(Fixture, "type_alias_default_type_pack_explicit")
+{
+    CheckResult result = check(R"(
+type Y<T... = (string, number)> = { a: (T...) -> () }
+local a: Y<>
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    CHECK_EQ(toString(requireType("a")), "Y<string, number>");
+}
+
+TEST_CASE_FIXTURE(Fixture, "type_alias_default_type_pack_self_ty")
+{
+    CheckResult result = check(R"(
+type Y<T, U... = ...T> = { a: T, b: (U...) -> T }
+
+local a: Y<number>
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    CHECK_EQ(toString(requireType("a")), "Y<number, ...number>");
+}
+
+TEST_CASE_FIXTURE(Fixture, "type_alias_default_type_pack_self_tp")
+{
+    CheckResult result = check(R"(
+type Y<T..., U... = T...> = { a: (T...) -> U... }
+local a: Y<number, string>
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    CHECK_EQ(toString(requireType("a")), "Y<(number, string), (number, string)>");
+}
+
+TEST_CASE_FIXTURE(Fixture, "type_alias_default_type_pack_self_chained_tp")
+{
+    CheckResult result = check(R"(
+type Y<T..., U... = T..., V... = U...> = { a: (T...) -> U..., b: (T...) -> V... }
+local a: Y<number, string>
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    CHECK_EQ(toString(requireType("a")), "Y<(number, string), (number, string), (number, string)>");
+}
+
+TEST_CASE_FIXTURE(Fixture, "type_alias_default_mixed_self")
+{
+    CheckResult result = check(R"(
+type Y<T, U = T, V... = ...number, W... = (T, U, V...)> = { a: (T, U, V...) -> W... }
+local a: Y<number>
+local b: Y<number, string>
+local c: Y<number, string, ...boolean>
+local d: Y<number, string, ...boolean, ...() -> ()>
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    CHECK_EQ(toString(requireType("a")), "Y<number, number, ...number, (number, number, ...number)>");
+    CHECK_EQ(toString(requireType("b")), "Y<number, string, ...number, (number, string, ...number)>");
+    CHECK_EQ(toString(requireType("c")), "Y<number, string, ...boolean, (number, string, ...boolean)>");
+    CHECK_EQ(toString(requireType("d")), "Y<number, string, ...boolean, ...() -> ()>");
+}
+
+TEST_CASE_FIXTURE(Fixture, "type_alias_default_type_errors")
+{
+    CheckResult result = check(R"(
+type Y<T = T> = { a: T }
+local a: Y = { a = 2 }
+    )");
+
+    LUAU_REQUIRE_ERROR_COUNT(1, result);
+    CHECK_EQ(toString(result.errors[0]), "Unknown type 'T'");
+
+    result = check(R"(
+type Y<T... = T...> = { a: (T...) -> () }
+local a: Y<>
+    )");
+
+    LUAU_REQUIRE_ERROR_COUNT(1, result);
+    CHECK_EQ(toString(result.errors[0]), "Unknown type 'T'");
+
+    result = check(R"(
+type Y<T = string, U... = ...string> = { a: (T) -> U... }
+local a: Y<...number>
+    )");
+
+    LUAU_REQUIRE_ERROR_COUNT(1, result);
+    CHECK_EQ(toString(result.errors[0]), "Generic type 'Y<T, U...>' expects at least 1 type argument, but none are specified");
+
+    result = check(R"(
+type Packed<T> = (T) -> T
+local a: Packed
+    )");
+
+    LUAU_REQUIRE_ERROR_COUNT(1, result);
+    CHECK_EQ(toString(result.errors[0]), "Type parameter list is required");
+
+    result = check(R"(
+type Y<T, U = T, V> = { a: T }
+local a: Y<number>
+    )");
+
+    LUAU_REQUIRE_ERRORS(result);
+
+    result = check(R"(
+type Y<T..., U... = T..., V...> = { a: T }
+local a: Y<...number>
+    )");
+
+    LUAU_REQUIRE_ERRORS(result);
+}
+
+TEST_CASE_FIXTURE(BuiltinsFixture, "type_alias_default_export")
+{
+    fileResolver.source["Module/Types"] = R"(
+export type A<T, U = string> = { a: T, b: U }
+export type B<T, U = T> = { a: T, b: U }
+export type C<T, U = (T, T) -> string> = { a: T, b: U }
+export type D<T, U = T, V = U> = { a: T, b: U, c: V }
+export type E<T... = (string, number)> = { a: (T...) -> () }
+export type F<T, U... = ...T> = { a: T, b: (U...) -> T }
+export type G<T..., U... = ()> = { b: (U...) -> T... }
+export type H<T... = ()> = { b: (T...) -> T... }
+return {}
+    )";
+
+    CheckResult resultTypes = frontend.check("Module/Types");
+    LUAU_REQUIRE_NO_ERRORS(resultTypes);
+
+    fileResolver.source["Module/Users"] = R"(
+local Types = require(script.Parent.Types)
+
+local a: Types.A<number>
+local b: Types.B<number>
+local c: Types.C<number>
+local d: Types.D<number>
+local e: Types.E<>
+local eVoid: Types.E<()>
+local f: Types.F<number>
+local g: Types.G<...number>
+local h: Types.H<>
+    )";
+
+    CheckResult resultUsers = frontend.check("Module/Users");
+    LUAU_REQUIRE_NO_ERRORS(resultUsers);
+
+    CHECK_EQ(toString(requireType("Module/Users", "a")), "A<number, string>");
+    CHECK_EQ(toString(requireType("Module/Users", "b")), "B<number, number>");
+    CHECK_EQ(toString(requireType("Module/Users", "c")), "C<number, (number, number) -> string>");
+    CHECK_EQ(toString(requireType("Module/Users", "d")), "D<number, number, number>");
+    CHECK_EQ(toString(requireType("Module/Users", "e")), "E<string, number>");
+    CHECK_EQ(toString(requireType("Module/Users", "eVoid")), "E<>");
+    CHECK_EQ(toString(requireType("Module/Users", "f")), "F<number, ...number>");
+    CHECK_EQ(toString(requireType("Module/Users", "g")), "G<...number, ()>");
+    CHECK_EQ(toString(requireType("Module/Users", "h")), "H<>");
+}
+
+TEST_CASE_FIXTURE(Fixture, "type_alias_default_type_skip_brackets")
+{
+    CheckResult result = check(R"(
+type Y<T... = ...string> = (T...) -> number
+local a: Y
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    CHECK_EQ(toString(requireType("a")), "(...string) -> number");
+}
+
+TEST_CASE_FIXTURE(Fixture, "type_alias_defaults_confusing_types")
+{
+    CheckResult result = check(R"(
+type A<T, U = T, V... = ...any, W... = V...> = (T, V...) -> (U, W...)
+type B = A<string, (number)>
+type C = A<string, (number), (boolean)>
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    CHECK_EQ(toString(*lookupType("B"), {true}), "(string, ...any) -> (number, ...any)");
+    CHECK_EQ(toString(*lookupType("C"), {true}), "(string, boolean) -> (number, boolean)");
+}
+
+TEST_CASE_FIXTURE(Fixture, "type_alias_defaults_recursive_type")
+{
+    CheckResult result = check(R"(
+type F<K = string, V = (K) -> ()> = (K) -> V
+type R = { m: F<R> }
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    CHECK_EQ(toString(*lookupType("R"), {true}), "t1 where t1 = {| m: (t1) -> (t1) -> () |}");
+}
+
+TEST_CASE_FIXTURE(Fixture, "pack_tail_unification_check")
+{
+    CheckResult result = check(R"(
+local a: () -> (number, ...string)
+local b: () -> (number, ...boolean)
+a = b
+    )");
+
+    LUAU_REQUIRE_ERROR_COUNT(1, result);
+    CHECK_EQ(toString(result.errors[0]), R"(Type '() -> (number, ...boolean)' could not be converted into '() -> (number, ...string)'
+caused by:
+  Type 'boolean' could not be converted into 'string')");
+}
+
+// TODO: File a Jira about this
+/*
+TEST_CASE_FIXTURE(Fixture, "unifying_vararg_pack_with_fixed_length_pack_produces_fixed_length_pack")
+{
+    CheckResult result = check(R"(
+        function a(x) return 1 end
+        a(...)
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    REQUIRE(bool(getMainModule()->getModuleScope()->varargPack));
+
+    TypePackId varargPack = *getMainModule()->getModuleScope()->varargPack;
+
+    auto iter = begin(varargPack);
+    auto endIter = end(varargPack);
+
+    CHECK(iter != endIter);
+    ++iter;
+    CHECK(iter == endIter);
+
+    CHECK(!iter.tail());
+}
+*/
+
+TEST_CASE_FIXTURE(Fixture, "dont_ice_if_a_TypePack_is_an_error")
+{
+    CheckResult result = check(R"(
+        --!strict
+        function f(s)
+            print(s)
+            return f
+        end
+
+        f("foo")("bar")
+    )");
+}
+
+TEST_CASE_FIXTURE(Fixture, "cyclic_type_packs")
+{
+    // this has a risk of creating cyclic type packs, causing infinite loops / OOMs
+    check(R"(
+--!nonstrict
+_ += _(_,...)
+repeat
+_ += _(...)
+until ... + _
+)");
+
+    check(R"(
+--!nonstrict
+_ += _(_(...,...),_(...))
+repeat
+until _
+)");
+}
+
+TEST_CASE_FIXTURE(BuiltinsFixture, "detect_cyclic_typepacks")
+{
+    CheckResult result = check(R"(
+        type ( ... ) ( ) ;
+        ( ... ) ( - - ... ) ( - ... )
+        type = ( ... ) ;
+        ( ... ) (  ) ( ... ) ;
+        ( ... ) ""
+    )");
+
+    LUAU_REQUIRE_ERRORS(result);
+}
+
+TEST_CASE_FIXTURE(BuiltinsFixture, "detect_cyclic_typepacks2")
+{
+    CheckResult result = check(R"(
+        function _(l0:((typeof((pcall)))|((((t0)->())|(typeof(-67108864)))|(any)))|(any),...):(((typeof(0))|(any))|(any),typeof(-67108864),any)
+            xpcall(_,_,_)
+            _(_,_,_)
+        end
+    )");
+
+    LUAU_REQUIRE_ERRORS(result);
 }
 
 TEST_SUITE_END();

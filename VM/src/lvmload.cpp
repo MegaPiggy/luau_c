@@ -9,6 +9,7 @@
 #include "lgc.h"
 #include "lmem.h"
 #include "lbytecode.h"
+#include "lapi.h"
 
 #include <string.h>
 
@@ -113,12 +114,12 @@ static void resolveImportSafe(lua_State* L, Table* env, TValue* k, uint32_t id)
             // note: we call getimport with nil propagation which means that accesses to table chains like A.B.C will resolve in nil
             // this is technically not necessary but it reduces the number of exceptions when loading scripts that rely on getfenv/setfenv for global
             // injection
-            luaV_getimport(L, hvalue(gt(L)), self->k, self->id, /* propagatenil= */ true);
+            luaV_getimport(L, L->gt, self->k, self->id, /* propagatenil= */ true);
         }
     };
 
     ResolveImport ri = {k, id};
-    if (hvalue(gt(L))->safeenv)
+    if (L->gt->safeenv)
     {
         // luaD_pcall will make sure that if any C/Lua calls during import resolution fail, the thread state is restored back
         int oldTop = lua_gettop(L);
@@ -145,15 +146,19 @@ int luau_load(lua_State* L, const char* chunkname, const char* data, size_t size
     uint8_t version = read<uint8_t>(data, size, offset);
 
     // 0 means the rest of the bytecode is the error message
-    if (version == 0 || version != LBC_VERSION)
+    if (version == 0)
     {
         char chunkid[LUA_IDSIZE];
         luaO_chunkid(chunkid, chunkname, LUA_IDSIZE);
+        lua_pushfstring(L, "%s%.*s", chunkid, int(size - offset), data + offset);
+        return 1;
+    }
 
-        if (version == 0)
-            lua_pushfstring(L, "%s%.*s", chunkid, int(size - offset), data + offset);
-        else
-            lua_pushfstring(L, "%s: bytecode version mismatch", chunkid);
+    if (version < LBC_VERSION_MIN || version > LBC_VERSION_MAX)
+    {
+        char chunkid[LUA_IDSIZE];
+        luaO_chunkid(chunkid, chunkname, LUA_IDSIZE);
+        lua_pushfstring(L, "%s: bytecode version mismatch (expected [%d..%d], got %d)", chunkid, LBC_VERSION_MIN, LBC_VERSION_MAX, version);
         return 1;
     }
 
@@ -162,9 +167,8 @@ int luau_load(lua_State* L, const char* chunkname, const char* data, size_t size
     size_t GCthreshold = L->global->GCthreshold;
     L->global->GCthreshold = SIZE_MAX;
 
-    // env is 0 for current environment and a stack relative index otherwise
-    LUAU_ASSERT(env <= 0 && L->top - L->base >= -env);
-    Table* envt = (env == 0) ? hvalue(gt(L)) : hvalue(L->top + env);
+    // env is 0 for current environment and a stack index otherwise
+    Table* envt = (env == 0) ? L->gt : hvalue(luaA_toobject(L, env));
 
     TString* source = luaS_new(L, chunkname);
 
@@ -285,6 +289,7 @@ int luau_load(lua_State* L, const char* chunkname, const char* data, size_t size
             p->p[j] = protos[fid];
         }
 
+        p->linedefined = readVarInt(data, size, offset);
         p->debugname = readString(strings, data, size, offset);
 
         uint8_t lineinfo = read<uint8_t>(data, size, offset);
@@ -307,11 +312,11 @@ int luau_load(lua_State* L, const char* chunkname, const char* data, size_t size
                 p->lineinfo[j] = lastoffset;
             }
 
-            int lastLine = 0;
+            int lastline = 0;
             for (int j = 0; j < intervals; ++j)
             {
-                lastLine += read<int32_t>(data, size, offset);
-                p->abslineinfo[j] = lastLine;
+                lastline += read<int32_t>(data, size, offset);
+                p->abslineinfo[j] = lastline;
             }
         }
 

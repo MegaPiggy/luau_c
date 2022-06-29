@@ -2,6 +2,7 @@
 #pragma once
 
 #include "Luau/DenseHash.h"
+#include "Luau/Error.h"
 #include "Luau/TypeVar.h"
 #include "Luau/TypePack.h"
 
@@ -24,6 +25,14 @@ struct TypeIdPairHash
     }
 };
 
+struct UnifierCounters
+{
+    int recursionCount = 0;
+    int recursionLimit = 0;
+    int iterationCount = 0;
+    int iterationLimit = 0;
+};
+
 struct UnifierSharedState
 {
     UnifierSharedState(InternalErrorReporter* iceHandler)
@@ -33,12 +42,14 @@ struct UnifierSharedState
 
     InternalErrorReporter* iceHandler;
 
-    DenseHashSet<void*> seenAny{nullptr};
     DenseHashMap<TypeId, bool> skipCacheForType{nullptr};
     DenseHashSet<std::pair<TypeId, TypeId>, TypeIdPairHash> cachedUnify{{nullptr, nullptr}};
+    DenseHashMap<std::pair<TypeId, TypeId>, TypeErrorData, TypeIdPairHash> cachedUnifyError{{nullptr, nullptr}};
 
     DenseHashSet<TypeId> tempSeenTy{nullptr};
     DenseHashSet<TypePackId> tempSeenTp{nullptr};
+
+    UnifierCounters counters;
 };
 
 } // namespace Luau

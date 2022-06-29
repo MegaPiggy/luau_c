@@ -1,13 +1,10 @@
 // This file is part of the Luau programming language and is licensed under MIT License; see LICENSE.txt for details
 #include "Luau/Parser.h"
-#include "Luau/TypeInfer.h"
 
 #include "Fixture.h"
 #include "ScopedFlags.h"
 
 #include "doctest.h"
-
-LUAU_FASTFLAG(LuauFixAmbiguousErrorRecoveryInAssign)
 
 using namespace Luau;
 
@@ -302,8 +299,9 @@ TEST_CASE_FIXTURE(Fixture, "functions_can_have_return_annotations")
     AstStatFunction* statFunction = block->body.data[0]->as<AstStatFunction>();
     REQUIRE(statFunction != nullptr);
 
-    CHECK_EQ(statFunction->func->returnAnnotation.types.size, 1);
-    CHECK(statFunction->func->returnAnnotation.tailType == nullptr);
+    REQUIRE(statFunction->func->returnAnnotation.has_value());
+    CHECK_EQ(statFunction->func->returnAnnotation->types.size, 1);
+    CHECK(statFunction->func->returnAnnotation->tailType == nullptr);
 }
 
 TEST_CASE_FIXTURE(Fixture, "functions_can_have_a_function_type_annotation")
@@ -318,9 +316,9 @@ TEST_CASE_FIXTURE(Fixture, "functions_can_have_a_function_type_annotation")
     AstStatFunction* statFunc = block->body.data[0]->as<AstStatFunction>();
     REQUIRE(statFunc != nullptr);
 
-    AstArray<AstType*>& retTypes = statFunc->func->returnAnnotation.types;
-    REQUIRE(statFunc->func->hasReturnAnnotation);
-    CHECK(statFunc->func->returnAnnotation.tailType == nullptr);
+    REQUIRE(statFunc->func->returnAnnotation.has_value());
+    CHECK(statFunc->func->returnAnnotation->tailType == nullptr);
+    AstArray<AstType*>& retTypes = statFunc->func->returnAnnotation->types;
     REQUIRE(retTypes.size == 1);
 
     AstTypeFunction* funTy = retTypes.data[0]->as<AstTypeFunction>();
@@ -339,9 +337,9 @@ TEST_CASE_FIXTURE(Fixture, "function_return_type_should_disambiguate_from_functi
     AstStatFunction* statFunc = block->body.data[0]->as<AstStatFunction>();
     REQUIRE(statFunc != nullptr);
 
-    AstArray<AstType*>& retTypes = statFunc->func->returnAnnotation.types;
-    REQUIRE(statFunc->func->hasReturnAnnotation);
-    CHECK(statFunc->func->returnAnnotation.tailType == nullptr);
+    REQUIRE(statFunc->func->returnAnnotation.has_value());
+    CHECK(statFunc->func->returnAnnotation->tailType == nullptr);
+    AstArray<AstType*>& retTypes = statFunc->func->returnAnnotation->types;
     REQUIRE(retTypes.size == 2);
 
     AstTypeReference* ty0 = retTypes.data[0]->as<AstTypeReference>();
@@ -365,9 +363,9 @@ TEST_CASE_FIXTURE(Fixture, "function_return_type_should_parse_as_function_type_a
     AstStatFunction* statFunc = block->body.data[0]->as<AstStatFunction>();
     REQUIRE(statFunc != nullptr);
 
-    AstArray<AstType*>& retTypes = statFunc->func->returnAnnotation.types;
-    REQUIRE(statFunc->func->hasReturnAnnotation);
-    CHECK(statFunc->func->returnAnnotation.tailType == nullptr);
+    REQUIRE(statFunc->func->returnAnnotation.has_value());
+    CHECK(statFunc->func->returnAnnotation->tailType == nullptr);
+    AstArray<AstType*>& retTypes = statFunc->func->returnAnnotation->types;
     REQUIRE(retTypes.size == 1);
 
     AstTypeFunction* funTy = retTypes.data[0]->as<AstTypeFunction>();
@@ -709,10 +707,23 @@ TEST_CASE_FIXTURE(Fixture, "mode_is_unset_if_no_hot_comment")
 
 TEST_CASE_FIXTURE(Fixture, "sense_hot_comment_on_first_line")
 {
-    ParseResult result = parseEx("   --!strict ");
+    ParseOptions options;
+    options.captureComments = true;
+
+    ParseResult result = parseEx("   --!strict ", options);
     std::optional<Mode> mode = parseMode(result.hotcomments);
     REQUIRE(bool(mode));
     CHECK_EQ(int(*mode), int(Mode::Strict));
+}
+
+TEST_CASE_FIXTURE(Fixture, "non_header_hot_comments")
+{
+    ParseOptions options;
+    options.captureComments = true;
+
+    ParseResult result = parseEx("do end --!strict", options);
+    std::optional<Mode> mode = parseMode(result.hotcomments);
+    REQUIRE(!mode);
 }
 
 TEST_CASE_FIXTURE(Fixture, "stop_if_line_ends_with_hyphen")
@@ -722,7 +733,10 @@ TEST_CASE_FIXTURE(Fixture, "stop_if_line_ends_with_hyphen")
 
 TEST_CASE_FIXTURE(Fixture, "nonstrict_mode")
 {
-    ParseResult result = parseEx("--!nonstrict");
+    ParseOptions options;
+    options.captureComments = true;
+
+    ParseResult result = parseEx("--!nonstrict", options);
     CHECK(result.errors.empty());
     std::optional<Mode> mode = parseMode(result.hotcomments);
     REQUIRE(bool(mode));
@@ -731,7 +745,10 @@ TEST_CASE_FIXTURE(Fixture, "nonstrict_mode")
 
 TEST_CASE_FIXTURE(Fixture, "nocheck_mode")
 {
-    ParseResult result = parseEx("--!nocheck");
+    ParseOptions options;
+    options.captureComments = true;
+
+    ParseResult result = parseEx("--!nocheck", options);
     CHECK(result.errors.empty());
     std::optional<Mode> mode = parseMode(result.hotcomments);
     REQUIRE(bool(mode));
@@ -1255,7 +1272,6 @@ TEST_CASE_FIXTURE(Fixture, "parse_error_with_too_many_nested_type_group")
 TEST_CASE_FIXTURE(Fixture, "parse_error_with_too_many_nested_if_statements")
 {
     ScopedFastInt sfis{"LuauRecursionLimit", 10};
-    ScopedFastFlag sff{"LuauIfStatementRecursionGuard", true};
 
     matchParseErrorPrefix(
         "function f() if true then if true then if true then if true then if true then if true then if true then if true then if true "
@@ -1266,7 +1282,6 @@ TEST_CASE_FIXTURE(Fixture, "parse_error_with_too_many_nested_if_statements")
 TEST_CASE_FIXTURE(Fixture, "parse_error_with_too_many_changed_elseif_statements")
 {
     ScopedFastInt sfis{"LuauRecursionLimit", 10};
-    ScopedFastFlag sff{"LuauIfStatementRecursionGuard", true};
 
     matchParseErrorPrefix(
         "function f() if false then elseif false then elseif false then elseif false then elseif false then elseif false then elseif "
@@ -1276,7 +1291,6 @@ TEST_CASE_FIXTURE(Fixture, "parse_error_with_too_many_changed_elseif_statements"
 
 TEST_CASE_FIXTURE(Fixture, "parse_error_with_too_many_nested_ifelse_expressions1")
 {
-    ScopedFastFlag sff{"LuauIfElseExpressionBaseSupport", true};
     ScopedFastInt sfis{"LuauRecursionLimit", 10};
 
     matchParseError("function f() return if true then 1 elseif true then 2 elseif true then 3 elseif true then 4 elseif true then 5 elseif true then "
@@ -1286,7 +1300,6 @@ TEST_CASE_FIXTURE(Fixture, "parse_error_with_too_many_nested_ifelse_expressions1
 
 TEST_CASE_FIXTURE(Fixture, "parse_error_with_too_many_nested_ifelse_expressions2")
 {
-    ScopedFastFlag sff{"LuauIfElseExpressionBaseSupport", true};
     ScopedFastInt sfis{"LuauRecursionLimit", 10};
 
     matchParseError(
@@ -1502,6 +1515,15 @@ return
     CHECK_EQ(std::string(str->value.data, str->value.size), "\n");
 }
 
+TEST_CASE_FIXTURE(Fixture, "parse_error_broken_comment")
+{
+    const char* expected = "Expected identifier when parsing expression, got unfinished comment";
+
+    matchParseError("--[[unfinished work", expected);
+    matchParseError("--!strict\n--[[unfinished work", expected);
+    matchParseError("local x = 1 --[[unfinished work", expected);
+}
+
 TEST_CASE_FIXTURE(Fixture, "string_literals_escapes_broken")
 {
     const char* expected = "String literal contains malformed escape sequence";
@@ -1582,6 +1604,35 @@ TEST_CASE_FIXTURE(Fixture, "end_extent_of_functions_unions_and_intersections")
     CHECK_EQ((Position{3, 42}), block->body.data[2]->location.end);
 }
 
+TEST_CASE_FIXTURE(Fixture, "end_extent_doesnt_consume_comments")
+{
+    AstStatBlock* block = parse(R"(
+        type F = number
+        --comment
+        print('hello')
+    )");
+
+    REQUIRE_EQ(2, block->body.size);
+    CHECK_EQ((Position{1, 23}), block->body.data[0]->location.end);
+}
+
+TEST_CASE_FIXTURE(Fixture, "end_extent_doesnt_consume_comments_even_with_capture")
+{
+    // Same should hold when comments are captured
+    ParseOptions opts;
+    opts.captureComments = true;
+
+    AstStatBlock* block = parse(R"(
+        type F = number
+        --comment
+        print('hello')
+    )",
+        opts);
+
+    REQUIRE_EQ(2, block->body.size);
+    CHECK_EQ((Position{1, 23}), block->body.data[0]->location.end);
+}
+
 TEST_CASE_FIXTURE(Fixture, "parse_error_loop_control")
 {
     matchParseError("break", "break statement must be inside a loop");
@@ -1632,10 +1683,7 @@ TEST_CASE_FIXTURE(Fixture, "parse_error_confusing_function_call")
         "Ambiguous syntax: this looks like an argument list for a function call, but could also be a start of new statement; use ';' to separate "
         "statements");
 
-    if (FFlag::LuauFixAmbiguousErrorRecoveryInAssign)
-        CHECK(result4.errors.size() == 1);
-    else
-        CHECK(result4.errors.size() == 5);
+    CHECK(result4.errors.size() == 1);
 }
 
 TEST_CASE_FIXTURE(Fixture, "parse_error_varargs")
@@ -1960,6 +2008,107 @@ TEST_CASE_FIXTURE(Fixture, "function_type_named_arguments")
         "Expected '->' when parsing function type, got <eof>");
 
     matchParseError("type MyFunc = (number) -> (d: number) <a, b, c> -> number", "Expected '->' when parsing function type, got '<'");
+}
+
+TEST_CASE_FIXTURE(Fixture, "function_type_matching_parenthesis")
+{
+    matchParseError("local a: <T>(number -> string", "Expected ')' (to close '(' at column 13), got '->'");
+}
+
+TEST_CASE_FIXTURE(Fixture, "parse_type_alias_default_type")
+{
+    AstStat* stat = parse(R"(
+type A<T = string> = {}
+type B<T... = ...number> = {}
+type C<T..., U... = T...> = {}
+type D<T..., U... = ()> = {}
+type E<T... = (), U... = ()> = {}
+type F<T... = (string), U... = ()> = (T...) -> U...
+type G<T... = ...number, U... = (string, number, boolean)> = (U...) -> T...
+    )");
+
+    REQUIRE(stat != nullptr);
+}
+
+TEST_CASE_FIXTURE(Fixture, "parse_type_alias_default_type_errors")
+{
+    matchParseError("type Y<T = number, U> = {}", "Expected default type after type name", Location{{0, 20}, {0, 21}});
+    matchParseError("type Y<T... = ...number, U...> = {}", "Expected default type pack after type pack name", Location{{0, 29}, {0, 30}});
+    matchParseError("type Y<T... = (string) -> number> = {}", "Expected type pack after '=', got type", Location{{0, 14}, {0, 32}});
+}
+
+TEST_CASE_FIXTURE(Fixture, "parse_type_pack_errors")
+{
+    matchParseError("type Y<T...> = {a: T..., b: number}", "Unexpected '...' after type name; type pack is not allowed in this context",
+        Location{{0, 20}, {0, 23}});
+    matchParseError("type Y<T...> = {a: (number | string)...", "Unexpected '...' after type annotation", Location{{0, 36}, {0, 39}});
+}
+
+TEST_CASE_FIXTURE(Fixture, "parse_if_else_expression")
+{
+    {
+        AstStat* stat = parse("return if true then 1 else 2");
+
+        REQUIRE(stat != nullptr);
+        AstStatReturn* str = stat->as<AstStatBlock>()->body.data[0]->as<AstStatReturn>();
+        REQUIRE(str != nullptr);
+        CHECK(str->list.size == 1);
+        auto* ifElseExpr = str->list.data[0]->as<AstExprIfElse>();
+        REQUIRE(ifElseExpr != nullptr);
+    }
+
+    {
+        AstStat* stat = parse("return if true then 1 elseif true then 2 else 3");
+
+        REQUIRE(stat != nullptr);
+        AstStatReturn* str = stat->as<AstStatBlock>()->body.data[0]->as<AstStatReturn>();
+        REQUIRE(str != nullptr);
+        CHECK(str->list.size == 1);
+        auto* ifElseExpr1 = str->list.data[0]->as<AstExprIfElse>();
+        REQUIRE(ifElseExpr1 != nullptr);
+        auto* ifElseExpr2 = ifElseExpr1->falseExpr->as<AstExprIfElse>();
+        REQUIRE(ifElseExpr2 != nullptr);
+    }
+
+    // Use "else if" as opposed to elseif
+    {
+        AstStat* stat = parse("return if true then 1 else if true then 2 else 3");
+
+        REQUIRE(stat != nullptr);
+        AstStatReturn* str = stat->as<AstStatBlock>()->body.data[0]->as<AstStatReturn>();
+        REQUIRE(str != nullptr);
+        CHECK(str->list.size == 1);
+        auto* ifElseExpr1 = str->list.data[0]->as<AstExprIfElse>();
+        REQUIRE(ifElseExpr1 != nullptr);
+        auto* ifElseExpr2 = ifElseExpr1->falseExpr->as<AstExprIfElse>();
+        REQUIRE(ifElseExpr2 != nullptr);
+    }
+
+    // Use an if-else expression as the conditional expression of an if-else expression
+    {
+        AstStat* stat = parse("return if if true then false else true then 1 else 2");
+
+        REQUIRE(stat != nullptr);
+        AstStatReturn* str = stat->as<AstStatBlock>()->body.data[0]->as<AstStatReturn>();
+        REQUIRE(str != nullptr);
+        CHECK(str->list.size == 1);
+        auto* ifElseExpr = str->list.data[0]->as<AstExprIfElse>();
+        REQUIRE(ifElseExpr != nullptr);
+        auto* nestedIfElseExpr = ifElseExpr->condition->as<AstExprIfElse>();
+        REQUIRE(nestedIfElseExpr != nullptr);
+    }
+}
+
+TEST_CASE_FIXTURE(Fixture, "parse_type_pack_type_parameters")
+{
+    AstStat* stat = parse(R"(
+type Packed<T...> = () -> T...
+
+type A<X...> = Packed<X...>
+type B<X...> = Packed<...number>
+type C<X...> = Packed<(number, X...)>
+    )");
+    REQUIRE(stat != nullptr);
 }
 
 TEST_SUITE_END();
@@ -2303,12 +2452,10 @@ TEST_CASE_FIXTURE(Fixture, "capture_comments")
 
 TEST_CASE_FIXTURE(Fixture, "capture_broken_comment_at_the_start_of_the_file")
 {
-    ScopedFastFlag sff{"LuauCaptureBrokenCommentSpans", true};
-
     ParseOptions options;
     options.captureComments = true;
 
-    ParseResult result = parseEx(R"(
+    ParseResult result = tryParse(R"(
         --[[
     )",
         options);
@@ -2319,8 +2466,6 @@ TEST_CASE_FIXTURE(Fixture, "capture_broken_comment_at_the_start_of_the_file")
 
 TEST_CASE_FIXTURE(Fixture, "capture_broken_comment")
 {
-    ScopedFastFlag sff{"LuauCaptureBrokenCommentSpans", true};
-
     ParseOptions options;
     options.captureComments = true;
 
@@ -2459,80 +2604,50 @@ do end
     CHECK_EQ(1, result.errors.size());
 }
 
-TEST_CASE_FIXTURE(Fixture, "parse_if_else_expression")
+TEST_CASE_FIXTURE(Fixture, "recover_expected_type_pack")
 {
-    ScopedFastFlag sff{"LuauIfElseExpressionBaseSupport", true};
-
-    {
-        AstStat* stat = parse("return if true then 1 else 2");
-
-        REQUIRE(stat != nullptr);
-        AstStatReturn* str = stat->as<AstStatBlock>()->body.data[0]->as<AstStatReturn>();
-        REQUIRE(str != nullptr);
-        CHECK(str->list.size == 1);
-        auto* ifElseExpr = str->list.data[0]->as<AstExprIfElse>();
-        REQUIRE(ifElseExpr != nullptr);
-    }
-
-    {
-        AstStat* stat = parse("return if true then 1 elseif true then 2 else 3");
-
-        REQUIRE(stat != nullptr);
-        AstStatReturn* str = stat->as<AstStatBlock>()->body.data[0]->as<AstStatReturn>();
-        REQUIRE(str != nullptr);
-        CHECK(str->list.size == 1);
-        auto* ifElseExpr1 = str->list.data[0]->as<AstExprIfElse>();
-        REQUIRE(ifElseExpr1 != nullptr);
-        auto* ifElseExpr2 = ifElseExpr1->falseExpr->as<AstExprIfElse>();
-        REQUIRE(ifElseExpr2 != nullptr);
-    }
-
-    // Use "else if" as opposed to elseif
-    {
-        AstStat* stat = parse("return if true then 1 else if true then 2 else 3");
-
-        REQUIRE(stat != nullptr);
-        AstStatReturn* str = stat->as<AstStatBlock>()->body.data[0]->as<AstStatReturn>();
-        REQUIRE(str != nullptr);
-        CHECK(str->list.size == 1);
-        auto* ifElseExpr1 = str->list.data[0]->as<AstExprIfElse>();
-        REQUIRE(ifElseExpr1 != nullptr);
-        auto* ifElseExpr2 = ifElseExpr1->falseExpr->as<AstExprIfElse>();
-        REQUIRE(ifElseExpr2 != nullptr);
-    }
-
-    // Use an if-else expression as the conditional expression of an if-else expression
-    {
-        AstStat* stat = parse("return if if true then false else true then 1 else 2");
-
-        REQUIRE(stat != nullptr);
-        AstStatReturn* str = stat->as<AstStatBlock>()->body.data[0]->as<AstStatReturn>();
-        REQUIRE(str != nullptr);
-        CHECK(str->list.size == 1);
-        auto* ifElseExpr = str->list.data[0]->as<AstExprIfElse>();
-        REQUIRE(ifElseExpr != nullptr);
-        auto* nestedIfElseExpr = ifElseExpr->condition->as<AstExprIfElse>();
-        REQUIRE(nestedIfElseExpr != nullptr);
-    }
-}
-
-TEST_CASE_FIXTURE(Fixture, "parse_type_pack_type_parameters")
-{
-    ScopedFastFlag luauParseTypePackTypeParameters("LuauParseTypePackTypeParameters", true);
-
-    AstStat* stat = parse(R"(
-type Packed<T...> = () -> T...
-
-type A<X...> = Packed<X...>
-type B<X...> = Packed<...number>
-type C<X...> = Packed<(number, X...)>
+    ParseResult result = tryParse(R"(
+type Y<T..., U = T...> = (T...) -> U...
     )");
-    REQUIRE(stat != nullptr);
+    CHECK_EQ(1, result.errors.size());
 }
 
-TEST_CASE_FIXTURE(Fixture, "function_type_matching_parenthesis")
+TEST_CASE_FIXTURE(Fixture, "recover_unexpected_type_pack")
 {
-    matchParseError("local a: <T>(number -> string", "Expected ')' (to close '(' at column 13), got '->'");
+    ParseResult result = tryParse(R"(
+type X<T...> = { a: T..., b: number }
+type Y<T> = { a: T..., b: number }
+type Z<T> = { a: string | T..., b: number }
+    )");
+    REQUIRE_EQ(3, result.errors.size());
+}
+
+TEST_CASE_FIXTURE(Fixture, "recover_function_return_type_annotations")
+{
+    ScopedFastFlag sff{"LuauReturnTypeTokenConfusion", true};
+    ParseResult result = tryParse(R"(
+type Custom<A, B, C> = { x: A, y: B, z: C }
+type Packed<A...> = { x: (A...) -> () }
+type F = (number): Custom<boolean, number, string>
+type G = Packed<(number): (string, number, boolean)>
+local function f(x: number) -> Custom<string, boolean, number>
+end
+    )");
+    REQUIRE_EQ(3, result.errors.size());
+    CHECK_EQ(result.errors[0].getMessage(), "Return types in function type annotations are written after '->' instead of ':'");
+    CHECK_EQ(result.errors[1].getMessage(), "Return types in function type annotations are written after '->' instead of ':'");
+    CHECK_EQ(result.errors[2].getMessage(), "Function return type annotations are written after ':' instead of '->'");
+}
+
+TEST_CASE_FIXTURE(Fixture, "error_message_for_using_function_as_type_annotation")
+{
+    ScopedFastFlag sff{"LuauParserFunctionKeywordAsTypeHelp", true};
+    ParseResult result = tryParse(R"(
+        type Foo = function
+    )");
+    REQUIRE_EQ(1, result.errors.size());
+    CHECK_EQ("Using 'function' as a type annotation is not supported, consider replacing with a function type annotation e.g. '(...any) -> ...any'",
+        result.errors[0].getMessage());
 }
 
 TEST_SUITE_END();

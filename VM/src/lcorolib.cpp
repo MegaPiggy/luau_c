@@ -5,8 +5,6 @@
 #include "lstate.h"
 #include "lvm.h"
 
-LUAU_FASTFLAGVARIABLE(LuauCoroutineClose, false)
-
 #define CO_RUN 0 /* running */
 #define CO_SUS 1 /* suspended */
 #define CO_NOR 2 /* 'normal' (it resumed another coroutine) */
@@ -235,9 +233,6 @@ static int coyieldable(lua_State* L)
 
 static int coclose(lua_State* L)
 {
-    if (!FFlag::LuauCoroutineClose)
-        luaL_error(L, "coroutine.close is not enabled");
-
     lua_State* co = lua_tothread(L, 1);
     luaL_argexpected(L, co, 1, "thread");
 
@@ -255,7 +250,7 @@ static int coclose(lua_State* L)
     {
         lua_pushboolean(L, false);
         if (lua_gettop(co))
-            lua_xmove(co, L, 1);  /* move error message */
+            lua_xmove(co, L, 1); /* move error message */
         lua_resetthread(co);
         return 2;
     }
@@ -272,7 +267,7 @@ static const luaL_Reg co_funcs[] = {
     {NULL, NULL},
 };
 
-LUALIB_API int luaopen_coroutine(lua_State* L)
+int luaopen_coroutine(lua_State* L)
 {
     luaL_register(L, LUA_COLIBNAME, co_funcs);
 

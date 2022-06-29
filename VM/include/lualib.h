@@ -35,6 +35,9 @@ LUALIB_API int luaL_optinteger(lua_State* L, int nArg, int def);
 LUALIB_API unsigned luaL_checkunsigned(lua_State* L, int numArg);
 LUALIB_API unsigned luaL_optunsigned(lua_State* L, int numArg, unsigned def);
 
+LUALIB_API const float* luaL_checkvector(lua_State* L, int narg);
+LUALIB_API const float* luaL_optvector(lua_State* L, int narg, const float* def);
+
 LUALIB_API void luaL_checkstack(lua_State* L, int sz, const char* msg);
 LUALIB_API void luaL_checktype(lua_State* L, int narg, int t);
 LUALIB_API void luaL_checkany(lua_State* L, int narg);
@@ -54,6 +57,8 @@ LUALIB_API lua_State* luaL_newstate(void);
 
 LUALIB_API const char* luaL_findtable(lua_State* L, int idx, const char* fname, int szhint);
 
+LUALIB_API const char* luaL_typename(lua_State* L, int idx);
+
 /*
 ** ===============================================================
 ** some useful macros
@@ -65,8 +70,6 @@ LUALIB_API const char* luaL_findtable(lua_State* L, int idx, const char* fname, 
 
 #define luaL_checkstring(L, n) (luaL_checklstring(L, (n), NULL))
 #define luaL_optstring(L, n, d) (luaL_optlstring(L, (n), (d), NULL))
-
-#define luaL_typename(L, i) lua_typename(L, lua_type(L, (i)))
 
 #define luaL_getmetatable(L, n) (lua_getfield(L, LUA_REGISTRYINDEX, (n)))
 

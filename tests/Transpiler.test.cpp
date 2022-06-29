@@ -388,7 +388,7 @@ TEST_CASE_FIXTURE(Fixture, "type_lists_should_be_emitted_correctly")
 
     std::string actual = decorateWithTypes(code);
 
-    CHECK_EQ(expected, decorateWithTypes(code));
+    CHECK_EQ(expected, actual);
 }
 
 TEST_CASE_FIXTURE(Fixture, "function_type_location")
@@ -421,8 +421,6 @@ TEST_CASE_FIXTURE(Fixture, "transpile_type_assertion")
 
 TEST_CASE_FIXTURE(Fixture, "transpile_if_then_else")
 {
-    ScopedFastFlag luauIfElseExpressionBaseSupport("LuauIfElseExpressionBaseSupport", true);
-
     std::string code = "local a = if 1 then 2 else 3";
 
     CHECK_EQ(code, transpile(code).code);
@@ -445,9 +443,6 @@ local a: Import.Type
 
 TEST_CASE_FIXTURE(Fixture, "transpile_type_packs")
 {
-    ScopedFastFlag luauTypeAliasPacks("LuauTypeAliasPacks", true);
-    ScopedFastFlag luauParseTypePackTypeParameters("LuauParseTypePackTypeParameters", true);
-
     std::string code = R"(
 type Packed<T...> = (T...)->(T...)
 local a: Packed<>
@@ -558,8 +553,6 @@ TEST_CASE_FIXTURE(Fixture, "transpile_assign_multiple")
 
 TEST_CASE_FIXTURE(Fixture, "transpile_generic_function")
 {
-    ScopedFastFlag luauParseGenericFunctionTypeBegin("LuauParseGenericFunctionTypeBegin", true);
-
     std::string code = R"(
 local function foo<T,S...>(a: T, ...: S...) return 1 end
 local f: <T,S...>(T, S...)->(number) = foo
@@ -644,6 +637,45 @@ TEST_CASE_FIXTURE(Fixture, "transpile_to_string")
     REQUIRE(statLocal->values.size == 1);
     AstExpr* expr = statLocal->values.data[0];
     CHECK_EQ("'hello'", toString(expr));
+}
+
+TEST_CASE_FIXTURE(Fixture, "transpile_type_alias_default_type_parameters")
+{
+    std::string code = R"(
+type Packed<T = string, U = T, V... = ...boolean, W... = (T, U, V...)> = (T, U, V...)->(W...)
+local a: Packed<number>
+    )";
+
+    CHECK_EQ(code, transpile(code, {}, true).code);
+}
+
+TEST_CASE_FIXTURE(Fixture, "transpile_singleton_types")
+{
+    std::string code = R"(
+type t1 = 'hello'
+type t2 = true
+type t3 = ''
+type t4 = false
+    )";
+
+    CHECK_EQ(code, transpile(code, {}, true).code);
+}
+
+TEST_CASE_FIXTURE(Fixture, "transpile_array_types")
+{
+    std::string code = R"(
+type t1 = {number}
+type t2 = {[string]: number}
+    )";
+
+    CHECK_EQ(code, transpile(code, {}, true).code);
+}
+
+TEST_CASE_FIXTURE(Fixture, "transpile_for_in_multiple_types")
+{
+    std::string code = "for k:string,v:boolean in next,{}do end";
+
+    CHECK_EQ(code, transpile(code, {}, true).code);
 }
 
 TEST_SUITE_END();

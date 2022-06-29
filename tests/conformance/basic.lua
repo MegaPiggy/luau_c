@@ -118,6 +118,8 @@ assert((function() return #_G end)() == 0)
 assert((function() return #{1,2} end)() == 2)
 assert((function() return #'g' end)() == 1)
 
+assert((function() local ud = newproxy(true) getmetatable(ud).__len = function() return 42 end return #ud end)() == 42)
+
 assert((function() local a = 1 a = -a return a end)() == -1)
 
 -- while/repeat
@@ -321,6 +323,10 @@ assert((function() local t = {6, 9, 7} t[4.5] = 10 return t[4.5] end)() == 10)
 assert((function() local t = {6, 9, 7} t['a'] = 11 return t['a'] end)() == 11)
 assert((function() local t = {6, 9, 7} setmetatable(t, { __newindex = function(t,i,v) rawset(t, i * 10, v) end }) t[1] = 17 t[5] = 1 return concat(t[1],t[5],t[50]) end)() == "17,nil,1")
 
+-- userdata access
+assert((function() local ud = newproxy(true) getmetatable(ud).__index = function(ud,i) return i * 10 end return ud[2] end)() == 20)
+assert((function() local ud = newproxy(true) getmetatable(ud).__index = function() return function(self, i) return i * 10 end end return ud:meow(2) end)() == 20)
+
 -- and/or
 -- rhs is a constant
 assert((function() local a = 1 a = a and 2 return a end)() == 2)
@@ -441,7 +447,8 @@ assert((function() a = {} b = {} mt = { __eq = function(l, r) return #l == #r en
 assert((function() a = {} b = {} function eq(l, r) return #l == #r end setmetatable(a, {__eq = eq}) setmetatable(b, {__eq = eq}) return concat(a == b, a ~= b) end)() == "true,false")
 assert((function() a = {} b = {} setmetatable(a, {__eq = function(l, r) return #l == #r end}) setmetatable(b, {__eq = function(l, r) return #l == #r end}) return concat(a == b, a ~= b) end)() == "false,true")
 
--- userdata, reference equality (no mt)
+-- userdata, reference equality (no mt or mt.__eq)
+assert((function() a = newproxy() return concat(a == newproxy(),a ~= newproxy()) end)() == "false,true")
 assert((function() a = newproxy(true) return concat(a == newproxy(true),a ~= newproxy(true)) end)() == "false,true")
 
 -- rawequal
@@ -457,7 +464,7 @@ assert((function() a = {} b = {} mt = { __eq = function(l, r) return #l == #r en
 
 -- metatable ops
 local function vec3t(x, y, z)
-    return setmetatable({ x=x, y=y, z=z}, {
+    return setmetatable({x=x, y=y, z=z}, {
         __add = function(l, r) return vec3t(l.x + r.x, l.y + r.y, l.z + r.z) end,
         __sub = function(l, r) return vec3t(l.x - r.x, l.y - r.y, l.z - r.z) end,
         __mul = function(l, r) return type(r) == "number" and vec3t(l.x * r, l.y * r, l.z * r) or vec3t(l.x * r.x, l.y * r.y, l.z * r.z) end,
@@ -826,6 +833,17 @@ assert((function()
     return sum
 end)() == 105)
 
+-- shrinking array part
+assert((function()
+    local t = table.create(100, 42)
+    for i=1,90 do t[i] = nil end
+    t[101] = 42
+    local sum = 0
+    for _,v in ipairs(t) do sum += v end
+    for _,v in pairs(t) do sum += v end
+    return sum
+end)() == 462)
+
 -- upvalues: recursive capture
 assert((function() local function fact(n) return n < 1 and 1 or n * fact(n-1) end return fact(5) end)() == 120)
 
@@ -873,6 +891,14 @@ end)() == "6,8,10")
 
 -- typeof == type in absence of custom userdata
 assert(concat(typeof(5), typeof(nil), typeof({}), typeof(newproxy())) == "number,nil,table,userdata")
+
+-- type/typeof/newproxy interaction with metatables: __type doesn't work intentionally to avoid spoofing
+assert((function()
+    local ud = newproxy(true)
+    getmetatable(ud).__type = "number"
+
+    return concat(type(ud),typeof(ud))
+end)() == "userdata,userdata")
 
 testgetfenv() -- DONT MOVE THIS LINE
 

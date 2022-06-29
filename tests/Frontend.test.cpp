@@ -2,7 +2,6 @@
 #include "Luau/AstQuery.h"
 #include "Luau/BuiltinDefinitions.h"
 #include "Luau/Frontend.h"
-#include "Luau/Parser.h"
 #include "Luau/RequireTracer.h"
 
 #include "Fixture.h"
@@ -46,18 +45,6 @@ NaiveModuleResolver naiveModuleResolver;
 
 struct NaiveFileResolver : NullFileResolver
 {
-    std::optional<ModuleName> fromAstFragment(AstExpr* expr) const override
-    {
-        AstExprGlobal* g = expr->as<AstExprGlobal>();
-        if (g && g->name == "Modules")
-            return "Modules";
-
-        if (g && g->name == "game")
-            return "game";
-
-        return std::nullopt;
-    }
-
     std::optional<ModuleInfo> resolveModule(const ModuleInfo* context, AstExpr* expr) override
     {
         if (AstExprGlobal* g = expr->as<AstExprGlobal>())
@@ -86,16 +73,11 @@ struct NaiveFileResolver : NullFileResolver
 
         return std::nullopt;
     }
-
-    ModuleName concat(const ModuleName& lhs, std::string_view rhs) const override
-    {
-        return lhs + "/" + ModuleName(rhs);
-    }
 };
 
 } // namespace
 
-struct FrontendFixture : Fixture
+struct FrontendFixture : BuiltinsFixture
 {
     FrontendFixture()
     {
@@ -115,8 +97,8 @@ TEST_CASE_FIXTURE(FrontendFixture, "find_a_require")
     NaiveFileResolver naiveFileResolver;
 
     auto res = traceRequires(&naiveFileResolver, program, "");
-    CHECK_EQ(1, res.requires.size());
-    CHECK_EQ(res.requires[0].first, "Modules/Foo/Bar");
+    CHECK_EQ(1, res.requireList.size());
+    CHECK_EQ(res.requireList[0].first, "Modules/Foo/Bar");
 }
 
 // It could be argued that this should not work.
@@ -131,7 +113,7 @@ TEST_CASE_FIXTURE(FrontendFixture, "find_a_require_inside_a_function")
     NaiveFileResolver naiveFileResolver;
 
     auto res = traceRequires(&naiveFileResolver, program, "");
-    CHECK_EQ(1, res.requires.size());
+    CHECK_EQ(1, res.requireList.size());
 }
 
 TEST_CASE_FIXTURE(FrontendFixture, "real_source")
@@ -156,7 +138,7 @@ TEST_CASE_FIXTURE(FrontendFixture, "real_source")
     NaiveFileResolver naiveFileResolver;
 
     auto res = traceRequires(&naiveFileResolver, program, "");
-    CHECK_EQ(8, res.requires.size());
+    CHECK_EQ(8, res.requireList.size());
 }
 
 TEST_CASE_FIXTURE(FrontendFixture, "automatically_check_dependent_scripts")
@@ -400,6 +382,66 @@ TEST_CASE_FIXTURE(FrontendFixture, "cycle_error_paths")
     REQUIRE_EQ(ce2->cycle.size(), 2);
     CHECK_EQ(ce2->cycle[0], "game/Gui/Modules/B");
     CHECK_EQ(ce2->cycle[1], "game/Gui/Modules/A");
+}
+
+TEST_CASE_FIXTURE(FrontendFixture, "cycle_incremental_type_surface")
+{
+    fileResolver.source["game/A"] = R"(
+        return {hello = 2}
+    )";
+
+    CheckResult result = frontend.check("game/A");
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    fileResolver.source["game/A"] = R"(
+        local me = require(game.A)
+        return {hello = 2}
+    )";
+    frontend.markDirty("game/A");
+
+    result = frontend.check("game/A");
+    LUAU_REQUIRE_ERRORS(result);
+
+    auto ty = requireType("game/A", "me");
+    CHECK_EQ(toString(ty), "any");
+}
+
+TEST_CASE_FIXTURE(FrontendFixture, "cycle_incremental_type_surface_longer")
+{
+    fileResolver.source["game/A"] = R"(
+        return {mod_a = 2}
+    )";
+
+    CheckResult result = frontend.check("game/A");
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    fileResolver.source["game/B"] = R"(
+        local me = require(game.A)
+        return {mod_b = 4}
+    )";
+
+    result = frontend.check("game/B");
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    fileResolver.source["game/A"] = R"(
+        local me = require(game.B)
+        return {mod_a_prime = 3}
+    )";
+
+    frontend.markDirty("game/A");
+    frontend.markDirty("game/B");
+
+    result = frontend.check("game/A");
+    LUAU_REQUIRE_ERRORS(result);
+
+    TypeId tyA = requireType("game/A", "me");
+    CHECK_EQ(toString(tyA), "any");
+
+    result = frontend.check("game/B");
+    LUAU_REQUIRE_ERRORS(result);
+
+    TypeId tyB = requireType("game/B", "me");
+    CHECK_EQ(toString(tyB), "any");
 }
 
 TEST_CASE_FIXTURE(FrontendFixture, "dont_reparse_clean_file_when_linting")
@@ -914,8 +956,6 @@ TEST_CASE_FIXTURE(FrontendFixture, "clearStats")
 
 TEST_CASE_FIXTURE(FrontendFixture, "typecheck_twice_for_ast_types")
 {
-    ScopedFastFlag sffs("LuauTypeCheckTwice", true);
-
     fileResolver.source["Module/A"] = R"(
         local a = 1
     )";
@@ -944,7 +984,7 @@ return a;
 --!nonstrict
 local a = require(script.Parent.A)
 local b = {}
-function a:b() end -- this should error, but doesn't
+function a:b() end -- this should error, since A doesn't define a:b()
 return b
     )";
 
@@ -959,8 +999,7 @@ a:b() -- this should error, since A doesn't define a:b()
     LUAU_REQUIRE_NO_ERRORS(resultA);
 
     CheckResult resultB = frontend.check("Module/B");
-    // TODO (CLI-45592): this should error, since we shouldn't be adding properties to objects from other modules
-    LUAU_REQUIRE_NO_ERRORS(resultB);
+    LUAU_REQUIRE_ERRORS(resultB);
 
     CheckResult resultC = frontend.check("Module/C");
     LUAU_REQUIRE_ERRORS(resultC);
@@ -972,7 +1011,6 @@ TEST_CASE("no_use_after_free_with_type_fun_instantiation")
 {
     // This flag forces this test to crash if there's a UAF in this code.
     ScopedFastFlag sff_DebugLuauFreezeArena("DebugLuauFreezeArena", true);
-    ScopedFastFlag sff_LuauCloneCorrectlyBeforeMutatingTableType("LuauCloneCorrectlyBeforeMutatingTableType", true);
 
     FrontendFixture fix;
 
@@ -989,6 +1027,20 @@ return false;
 
     // We don't care about the result. That we haven't crashed is enough.
     fix.frontend.check("Module/B");
+}
+
+TEST_CASE("check_without_builtin_next")
+{
+    TestFileResolver fileResolver;
+    TestConfigResolver configResolver;
+    Frontend frontend(&fileResolver, &configResolver);
+
+    fileResolver.source["Module/A"] = "for k,v in 2 do end";
+    fileResolver.source["Module/B"] = "return next";
+
+    // We don't care about the result. That we haven't crashed is enough.
+    frontend.check("Module/A");
+    frontend.check("Module/B");
 }
 
 TEST_SUITE_END();

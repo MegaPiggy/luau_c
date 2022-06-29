@@ -6,9 +6,10 @@
 namespace Luau
 {
 
-struct Module;
-using ModulePtr = std::shared_ptr<Module>;
+struct TypeArena;
+struct Scope2;
 
-void quantify(ModulePtr module, TypeId ty, TypeLevel level);
+void quantify(TypeId ty, TypeLevel level);
+TypeId quantify(TypeArena* arena, TypeId ty, Scope2* scope);
 
 } // namespace Luau

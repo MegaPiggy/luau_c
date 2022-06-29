@@ -20,8 +20,14 @@ class TypedAllocator
 public:
     TypedAllocator()
     {
-        appendBlock();
+        currentBlockSize = kBlockSize;
     }
+
+    TypedAllocator(const TypedAllocator&) = delete;
+    TypedAllocator& operator=(const TypedAllocator&) = delete;
+
+    TypedAllocator(TypedAllocator&&) = default;
+    TypedAllocator& operator=(TypedAllocator&&) = default;
 
     ~TypedAllocator()
     {
@@ -59,12 +65,12 @@ public:
 
     bool empty() const
     {
-        return stuff.size() == 1 && currentBlockSize == 0;
+        return stuff.empty();
     }
 
     size_t size() const
     {
-        return kBlockSize * (stuff.size() - 1) + currentBlockSize;
+        return stuff.empty() ? 0 : kBlockSize * (stuff.size() - 1) + currentBlockSize;
     }
 
     void clear()
@@ -72,7 +78,8 @@ public:
         if (frozen)
             unfreeze();
         free();
-        appendBlock();
+
+        currentBlockSize = kBlockSize;
     }
 
     void freeze()

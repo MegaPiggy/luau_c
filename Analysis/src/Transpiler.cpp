@@ -10,8 +10,6 @@
 #include <limits>
 #include <math.h>
 
-LUAU_FASTFLAG(LuauTypeAliasPacks)
-
 namespace
 {
 bool isIdentifierStartChar(char c)
@@ -787,7 +785,7 @@ struct Printer
 
                 writer.keyword("type");
                 writer.identifier(a->name.value);
-                if (a->generics.size > 0 || (FFlag::LuauTypeAliasPacks && a->genericPacks.size > 0))
+                if (a->generics.size > 0 || a->genericPacks.size > 0)
                 {
                     writer.symbol("<");
                     CommaSeparatorInserter comma(writer);
@@ -795,16 +793,31 @@ struct Printer
                     for (auto o : a->generics)
                     {
                         comma();
-                        writer.identifier(o.value);
+
+                        writer.advance(o.location.begin);
+                        writer.identifier(o.name.value);
+
+                        if (o.defaultValue)
+                        {
+                            writer.maybeSpace(o.defaultValue->location.begin, 2);
+                            writer.symbol("=");
+                            visualizeTypeAnnotation(*o.defaultValue);
+                        }
                     }
 
-                    if (FFlag::LuauTypeAliasPacks)
+                    for (auto o : a->genericPacks)
                     {
-                        for (auto o : a->genericPacks)
+                        comma();
+
+                        writer.advance(o.location.begin);
+                        writer.identifier(o.name.value);
+                        writer.symbol("...");
+
+                        if (o.defaultValue)
                         {
-                            comma();
-                            writer.identifier(o.value);
-                            writer.symbol("...");
+                            writer.maybeSpace(o.defaultValue->location.begin, 2);
+                            writer.symbol("=");
+                            visualizeTypePackAnnotation(*o.defaultValue, false);
                         }
                     }
 
@@ -851,12 +864,16 @@ struct Printer
             for (const auto& o : func.generics)
             {
                 comma();
-                writer.identifier(o.value);
+
+                writer.advance(o.location.begin);
+                writer.identifier(o.name.value);
             }
             for (const auto& o : func.genericPacks)
             {
                 comma();
-                writer.identifier(o.value);
+
+                writer.advance(o.location.begin);
+                writer.identifier(o.name.value);
                 writer.symbol("...");
             }
             writer.symbol(">");
@@ -895,12 +912,12 @@ struct Printer
 
         writer.symbol(")");
 
-        if (writeTypes && func.hasReturnAnnotation)
+        if (writeTypes && func.returnAnnotation)
         {
             writer.symbol(":");
             writer.space();
 
-            visualizeTypeList(func.returnAnnotation, false);
+            visualizeTypeList(*func.returnAnnotation, false);
         }
 
         visualizeBlock(*func.body);
@@ -951,9 +968,9 @@ struct Printer
         advance(typeAnnotation.location.begin);
         if (const auto& a = typeAnnotation.as<AstTypeReference>())
         {
-            if (a->hasPrefix)
+            if (a->prefix)
             {
-                writer.write(a->prefix.value);
+                writer.write(a->prefix->value);
                 writer.symbol(".");
             }
 
@@ -984,12 +1001,16 @@ struct Printer
                 for (const auto& o : a->generics)
                 {
                     comma();
-                    writer.identifier(o.value);
+
+                    writer.advance(o.location.begin);
+                    writer.identifier(o.name.value);
                 }
                 for (const auto& o : a->genericPacks)
                 {
                     comma();
-                    writer.identifier(o.value);
+
+                    writer.advance(o.location.begin);
+                    writer.identifier(o.name.value);
                     writer.symbol("...");
                 }
                 writer.symbol(">");
@@ -1004,31 +1025,42 @@ struct Printer
         }
         else if (const auto& a = typeAnnotation.as<AstTypeTable>())
         {
-            CommaSeparatorInserter comma(writer);
+            AstTypeReference* indexType = a->indexer ? a->indexer->indexType->as<AstTypeReference>() : nullptr;
 
-            writer.symbol("{");
-
-            for (std::size_t i = 0; i < a->props.size; ++i)
+            if (a->props.size == 0 && indexType && indexType->name == "number")
             {
-                comma();
-                advance(a->props.data[i].location.begin);
-                writer.identifier(a->props.data[i].name.value);
-                if (a->props.data[i].type)
-                {
-                    writer.symbol(":");
-                    visualizeTypeAnnotation(*a->props.data[i].type);
-                }
-            }
-            if (a->indexer)
-            {
-                comma();
-                writer.symbol("[");
-                visualizeTypeAnnotation(*a->indexer->indexType);
-                writer.symbol("]");
-                writer.symbol(":");
+                writer.symbol("{");
                 visualizeTypeAnnotation(*a->indexer->resultType);
+                writer.symbol("}");
             }
-            writer.symbol("}");
+            else
+            {
+                CommaSeparatorInserter comma(writer);
+
+                writer.symbol("{");
+
+                for (std::size_t i = 0; i < a->props.size; ++i)
+                {
+                    comma();
+                    advance(a->props.data[i].location.begin);
+                    writer.identifier(a->props.data[i].name.value);
+                    if (a->props.data[i].type)
+                    {
+                        writer.symbol(":");
+                        visualizeTypeAnnotation(*a->props.data[i].type);
+                    }
+                }
+                if (a->indexer)
+                {
+                    comma();
+                    writer.symbol("[");
+                    visualizeTypeAnnotation(*a->indexer->indexType);
+                    writer.symbol("]");
+                    writer.symbol(":");
+                    visualizeTypeAnnotation(*a->indexer->resultType);
+                }
+                writer.symbol("}");
+            }
         }
         else if (auto a = typeAnnotation.as<AstTypeTypeof>())
         {
@@ -1106,6 +1138,14 @@ struct Printer
                 if (wrap)
                     writer.symbol(")");
             }
+        }
+        else if (const auto& a = typeAnnotation.as<AstTypeSingletonBool>())
+        {
+            writer.keyword(a->value ? "true" : "false");
+        }
+        else if (const auto& a = typeAnnotation.as<AstTypeSingletonString>())
+        {
+            writer.string(std::string_view(a->value.data, a->value.size));
         }
         else if (typeAnnotation.is<AstTypeError>())
         {

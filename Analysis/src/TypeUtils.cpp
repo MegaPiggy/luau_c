@@ -8,7 +8,7 @@
 namespace Luau
 {
 
-std::optional<TypeId> findMetatableEntry(ErrorVec& errors, const ScopePtr& globalScope, TypeId type, std::string entry, Location location)
+std::optional<TypeId> findMetatableEntry(ErrorVec& errors, TypeId type, std::string entry, Location location)
 {
     type = follow(type);
 
@@ -19,7 +19,7 @@ std::optional<TypeId> findMetatableEntry(ErrorVec& errors, const ScopePtr& globa
     TypeId unwrapped = follow(*metatable);
 
     if (get<AnyTypeVar>(unwrapped))
-        return singletonTypes.anyType;
+        return getSingletonTypes().anyType;
 
     const TableTypeVar* mtt = getTableType(unwrapped);
     if (!mtt)
@@ -35,7 +35,7 @@ std::optional<TypeId> findMetatableEntry(ErrorVec& errors, const ScopePtr& globa
         return std::nullopt;
 }
 
-std::optional<TypeId> findTablePropertyRespectingMeta(ErrorVec& errors, const ScopePtr& globalScope, TypeId ty, Name name, Location location)
+std::optional<TypeId> findTablePropertyRespectingMeta(ErrorVec& errors, TypeId ty, Name name, Location location)
 {
     if (get<AnyTypeVar>(ty))
         return ty;
@@ -47,10 +47,17 @@ std::optional<TypeId> findTablePropertyRespectingMeta(ErrorVec& errors, const Sc
             return it->second.type;
     }
 
-    std::optional<TypeId> mtIndex = findMetatableEntry(errors, globalScope, ty, "__index", location);
+    std::optional<TypeId> mtIndex = findMetatableEntry(errors, ty, "__index", location);
+    int count = 0;
     while (mtIndex)
     {
         TypeId index = follow(*mtIndex);
+
+        if (count >= 100)
+            return std::nullopt;
+
+        ++count;
+
         if (const auto& itt = getTableType(index))
         {
             const auto& fit = itt->props.find(name);
@@ -59,18 +66,18 @@ std::optional<TypeId> findTablePropertyRespectingMeta(ErrorVec& errors, const Sc
         }
         else if (const auto& itf = get<FunctionTypeVar>(index))
         {
-            std::optional<TypeId> r = first(follow(itf->retType));
+            std::optional<TypeId> r = first(follow(itf->retTypes));
             if (!r)
-                return singletonTypes.nilType;
+                return getSingletonTypes().nilType;
             else
                 return *r;
         }
         else if (get<AnyTypeVar>(index))
-            return singletonTypes.anyType;
+            return getSingletonTypes().anyType;
         else
             errors.push_back(TypeError{location, GenericError{"__index should either be a function or table. Got " + toString(index)}});
 
-        mtIndex = findMetatableEntry(errors, globalScope, *mtIndex, "__index", location);
+        mtIndex = findMetatableEntry(errors, *mtIndex, "__index", location);
     }
 
     return std::nullopt;

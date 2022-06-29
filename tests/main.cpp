@@ -2,11 +2,16 @@
 #include "Luau/Common.h"
 
 #define DOCTEST_CONFIG_IMPLEMENT
+// Our calls to parseOption/parseFlag don't provide a prefix so set the prefix to the empty string.
+#define DOCTEST_CONFIG_OPTIONS_PREFIX ""
 #include "doctest.h"
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
 #endif
 #include <Windows.h> // IsDebuggerPresent
 #endif
@@ -17,6 +22,10 @@
 #endif
 
 #include <optional>
+
+// Indicates if verbose output is enabled.
+// Currently, this enables  output from lua's 'print', but other verbose output could be enabled eventually.
+bool verbose = false;
 
 static bool skipFastFlag(const char* flagName)
 {
@@ -46,7 +55,7 @@ static bool debuggerPresent()
 #endif
 }
 
-static int assertionHandler(const char* expr, const char* file, int line)
+static int testAssertionHandler(const char* expr, const char* file, int line, const char* function)
 {
     if (debuggerPresent())
         LUAU_DEBUGBREAK();
@@ -212,7 +221,7 @@ static void setFastFlags(const std::vector<doctest::String>& flags)
 
 int main(int argc, char** argv)
 {
-    Luau::assertHandler() = assertionHandler;
+    Luau::assertHandler() = testAssertionHandler;
 
     doctest::registerReporter<BoostLikeReporter>("boost", 0, true);
 
@@ -233,6 +242,11 @@ int main(int argc, char** argv)
         }
 
         return 0;
+    }
+
+    if (doctest::parseFlag(argc, argv, "--verbose"))
+    {
+        verbose = true;
     }
 
     if (std::vector<doctest::String> flags; doctest::parseCommaSepArgs(argc, argv, "--fflags=", flags))
@@ -261,7 +275,15 @@ int main(int argc, char** argv)
         }
     }
 
-    return context.run();
+    int result = context.run();
+    if (doctest::parseFlag(argc, argv, "--help") || doctest::parseFlag(argc, argv, "-h"))
+    {
+        printf("Additional command line options:\n");
+        printf(" --verbose                             Enables verbose output (e.g. lua 'print' statements)\n");
+        printf(" --fflags=                             Sets specified fast flags\n");
+        printf(" --list-fflags                         List all fast flags\n");
+    }
+    return result;
 }
 
 

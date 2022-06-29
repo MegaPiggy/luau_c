@@ -26,9 +26,10 @@
  *     3. Cyclic dependencies can be resolved by picking an arbitrary statement to check first.
  */
 
-#include "Luau/Parser.h"
+#include "Luau/Ast.h"
 #include "Luau/DenseHash.h"
 #include "Luau/Common.h"
+#include "Luau/StringUtils.h"
 
 #include <algorithm>
 #include <deque>
@@ -214,6 +215,7 @@ struct ArcCollector : public AstVisitor
         }
     }
 
+    // Adds a dependency from the current node to the named node.
     void add(const Identifier& name)
     {
         Node** it = map.find(name);

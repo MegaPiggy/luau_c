@@ -5,8 +5,6 @@
 #include "Luau/StringUtils.h"
 #include "Luau/Common.h"
 
-LUAU_FASTFLAG(LuauTypeAliasPacks)
-
 namespace Luau
 {
 
@@ -150,9 +148,20 @@ struct AstJsonEncoder : public AstVisitor
     {
         writeRaw(std::to_string(i));
     }
+    void write(std::nullptr_t)
+    {
+        writeRaw("null");
+    }
     void write(std::string_view str)
     {
         writeString(str);
+    }
+    void write(std::optional<AstName> name)
+    {
+        if (name)
+            write(*name);
+        else
+            writeRaw("null");
     }
     void write(AstName name)
     {
@@ -177,7 +186,16 @@ struct AstJsonEncoder : public AstVisitor
 
     void write(AstLocal* local)
     {
-        write(local->name);
+        writeRaw("{");
+        bool c = pushComma();
+        if (local->annotation != nullptr)
+            write("type", local->annotation);
+        else
+            write("type", nullptr);
+        write("name", local->name);
+        write("location", local->location);
+        popComma(c);
+        writeRaw("}");
     }
 
     void writeNode(AstNode* node)
@@ -264,7 +282,7 @@ struct AstJsonEncoder : public AstVisitor
             if (comma)
                 writeRaw(",");
             else
-                comma = false;
+                comma = true;
 
             write(a);
         }
@@ -314,7 +332,7 @@ struct AstJsonEncoder : public AstVisitor
             if (node->self)
                 PROP(self);
             PROP(args);
-            if (node->hasReturnAnnotation)
+            if (node->returnAnnotation)
                 PROP(returnAnnotation);
             PROP(vararg);
             PROP(varargLocation);
@@ -328,6 +346,14 @@ struct AstJsonEncoder : public AstVisitor
         });
     }
 
+    void write(const std::optional<AstTypeList>& typeList)
+    {
+        if (typeList)
+            write(*typeList);
+        else
+            writeRaw("null");
+    }
+
     void write(const AstTypeList& typeList)
     {
         writeRaw("{");
@@ -335,6 +361,28 @@ struct AstJsonEncoder : public AstVisitor
         write("types", typeList.types);
         if (typeList.tailType)
             write("tailType", typeList.tailType);
+        popComma(c);
+        writeRaw("}");
+    }
+
+    void write(const AstGenericType& genericType)
+    {
+        writeRaw("{");
+        bool c = pushComma();
+        write("name", genericType.name);
+        if (genericType.defaultValue)
+            write("type", genericType.defaultValue);
+        popComma(c);
+        writeRaw("}");
+    }
+
+    void write(const AstGenericTypePack& genericTypePack)
+    {
+        writeRaw("{");
+        bool c = pushComma();
+        write("name", genericTypePack.name);
+        if (genericTypePack.defaultValue)
+            write("type", genericTypePack.defaultValue);
         popComma(c);
         writeRaw("}");
     }
@@ -355,35 +403,26 @@ struct AstJsonEncoder : public AstVisitor
     void write(const AstExprTable::Item& item)
     {
         writeRaw("{");
-        bool comma = pushComma();
+        bool c = pushComma();
         write("kind", item.kind);
         switch (item.kind)
         {
         case AstExprTable::Item::List:
-            write(item.value);
+            write("value", item.value);
             break;
         default:
-            write(item.key);
-            writeRaw(",");
-            write(item.value);
+            write("key", item.key);
+            write("value", item.value);
             break;
         }
-        popComma(comma);
+        popComma(c);
         writeRaw("}");
     }
 
     void write(class AstExprTable* node)
     {
         writeNode(node, "AstExprTable", [&]() {
-            bool comma = false;
-            for (const auto& prop : node->items)
-            {
-                if (comma)
-                    writeRaw(",");
-                else
-                    comma = false;
-                write(prop);
-            }
+            PROP(items);
         });
     }
 
@@ -495,7 +534,7 @@ struct AstJsonEncoder : public AstVisitor
             PROP(thenbody);
             if (node->elsebody)
                 PROP(elsebody);
-            PROP(hasThen);
+            write("hasThen", node->thenLocation.has_value());
             PROP(hasEnd);
         });
     }
@@ -615,12 +654,7 @@ struct AstJsonEncoder : public AstVisitor
         writeNode(node, "AstStatTypeAlias", [&]() {
             PROP(name);
             PROP(generics);
-
-            if (FFlag::LuauTypeAliasPacks)
-            {
-                PROP(genericPacks);
-            }
-
+            PROP(genericPacks);
             PROP(type);
             PROP(exported);
         });
@@ -684,7 +718,7 @@ struct AstJsonEncoder : public AstVisitor
     void write(class AstTypeReference* node)
     {
         writeNode(node, "AstTypeReference", [&]() {
-            if (node->hasPrefix)
+            if (node->prefix)
                 PROP(prefix);
             PROP(name);
             PROP(parameters);

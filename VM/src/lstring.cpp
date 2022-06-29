@@ -44,26 +44,21 @@ unsigned int luaS_hash(const char* str, size_t len)
 
 void luaS_resize(lua_State* L, int newsize)
 {
-    GCObject** newhash;
-    stringtable* tb;
-    int i;
-    if (L->global->gcstate == GCSsweepstring)
-        return; /* cannot resize during GC traverse */
-    newhash = luaM_newarray(L, newsize, GCObject*, 0);
-    tb = &L->global->strt;
-    for (i = 0; i < newsize; i++)
+    TString** newhash = luaM_newarray(L, newsize, TString*, 0);
+    stringtable* tb = &L->global->strt;
+    for (int i = 0; i < newsize; i++)
         newhash[i] = NULL;
     /* rehash */
-    for (i = 0; i < tb->size; i++)
+    for (int i = 0; i < tb->size; i++)
     {
-        GCObject* p = tb->hash[i];
+        TString* p = tb->hash[i];
         while (p)
-        {                                 /* for each node in the list */
-            GCObject* next = p->gch.next; /* save next */
-            unsigned int h = gco2ts(p)->hash;
+        {                            /* for each node in the list */
+            TString* next = p->next; /* save next */
+            unsigned int h = p->hash;
             int h1 = lmod(h, newsize); /* new position */
             LUAU_ASSERT(cast_int(h % newsize) == lmod(h, newsize));
-            p->gch.next = newhash[h1]; /* chain it */
+            p->next = newhash[h1]; /* chain it */
             newhash[h1] = p;
             p = next;
         }
@@ -79,7 +74,7 @@ static TString* newlstr(lua_State* L, const char* str, size_t l, unsigned int h)
     stringtable* tb;
     if (l > MAXSSIZE)
         luaM_toobig(L);
-    ts = luaM_new(L, TString, sizestring(l), L->activememcat);
+    ts = luaM_newgco(L, TString, sizestring(l), L->activememcat);
     ts->len = unsigned(l);
     ts->hash = h;
     ts->marked = luaC_white(L->global);
@@ -91,7 +86,7 @@ static TString* newlstr(lua_State* L, const char* str, size_t l, unsigned int h)
     tb = &L->global->strt;
     h = lmod(h, tb->size);
     ts->next = tb->hash[h]; /* chain new entry */
-    tb->hash[h] = obj2gco(ts);
+    tb->hash[h] = ts;
     tb->nuse++;
     if (tb->nuse > cast_to(uint32_t, tb->size) && tb->size <= INT_MAX / 2)
         luaS_resize(L, tb->size * 2); /* too crowded */
@@ -101,28 +96,28 @@ static TString* newlstr(lua_State* L, const char* str, size_t l, unsigned int h)
 static void linkstrbuf(lua_State* L, TString* ts)
 {
     global_State* g = L->global;
-    GCObject* o = obj2gco(ts);
-    o->gch.next = g->strbufgc;
-    g->strbufgc = o;
-    o->gch.marked = luaC_white(g);
+
+    ts->next = g->strbufgc;
+    g->strbufgc = ts;
+    ts->marked = luaC_white(g);
 }
 
 static void unlinkstrbuf(lua_State* L, TString* ts)
 {
     global_State* g = L->global;
 
-    GCObject** p = &g->strbufgc;
+    TString** p = &g->strbufgc;
 
-    while (GCObject* curr = *p)
+    while (TString* curr = *p)
     {
-        if (curr == obj2gco(ts))
+        if (curr == ts)
         {
-            *p = curr->gch.next;
+            *p = curr->next;
             return;
         }
         else
         {
-            p = &curr->gch.next;
+            p = &curr->next;
         }
     }
 
@@ -134,7 +129,7 @@ TString* luaS_bufstart(lua_State* L, size_t size)
     if (size > MAXSSIZE)
         luaM_toobig(L);
 
-    TString* ts = luaM_new(L, TString, sizestring(size), L->activememcat);
+    TString* ts = luaM_newgco(L, TString, sizestring(size), L->activememcat);
 
     ts->tt = LUA_TSTRING;
     ts->memcat = L->activememcat;
@@ -152,15 +147,13 @@ TString* luaS_buffinish(lua_State* L, TString* ts)
     int bucket = lmod(h, tb->size);
 
     // search if we already have this string in the hash table
-    for (GCObject* o = tb->hash[bucket]; o != NULL; o = o->gch.next)
+    for (TString* el = tb->hash[bucket]; el != NULL; el = el->next)
     {
-        TString* el = gco2ts(o);
-
         if (el->len == ts->len && memcmp(el->data, ts->data, ts->len) == 0)
         {
             // string may be dead
-            if (isdead(L->global, o))
-                changewhite(o);
+            if (isdead(L->global, obj2gco(el)))
+                changewhite(obj2gco(el));
 
             return el;
         }
@@ -174,7 +167,7 @@ TString* luaS_buffinish(lua_State* L, TString* ts)
     // Complete string object
     ts->atom = L->global->cb.useratom ? L->global->cb.useratom(ts->data, ts->len) : -1;
     ts->next = tb->hash[bucket]; // chain new entry
-    tb->hash[bucket] = obj2gco(ts);
+    tb->hash[bucket] = ts;
 
     tb->nuse++;
     if (tb->nuse > cast_to(uint32_t, tb->size) && tb->size <= INT_MAX / 2)
@@ -185,53 +178,49 @@ TString* luaS_buffinish(lua_State* L, TString* ts)
 
 TString* luaS_newlstr(lua_State* L, const char* str, size_t l)
 {
-    GCObject* o;
     unsigned int h = luaS_hash(str, l);
-    for (o = L->global->strt.hash[lmod(h, L->global->strt.size)]; o != NULL; o = o->gch.next)
+    for (TString* el = L->global->strt.hash[lmod(h, L->global->strt.size)]; el != NULL; el = el->next)
     {
-        TString* ts = gco2ts(o);
-        if (ts->len == l && (memcmp(str, getstr(ts), l) == 0))
+        if (el->len == l && (memcmp(str, getstr(el), l) == 0))
         {
             /* string may be dead */
-            if (isdead(L->global, o))
-                changewhite(o);
-            return ts;
+            if (isdead(L->global, obj2gco(el)))
+                changewhite(obj2gco(el));
+            return el;
         }
     }
     return newlstr(L, str, l, h); /* not found */
 }
 
-void luaS_free(lua_State* L, TString* ts)
+static bool unlinkstr(lua_State* L, TString* ts)
 {
-    L->global->strt.nuse--;
-    luaM_free(L, ts, sizestring(ts->len), ts->memcat);
+    global_State* g = L->global;
+
+    TString** p = &g->strt.hash[lmod(ts->hash, g->strt.size)];
+
+    while (TString* curr = *p)
+    {
+        if (curr == ts)
+        {
+            *p = curr->next;
+            return true;
+        }
+        else
+        {
+            p = &curr->next;
+        }
+    }
+
+    return false;
 }
 
-Udata* luaS_newudata(lua_State* L, size_t s, int tag)
+void luaS_free(lua_State* L, TString* ts, lua_Page* page)
 {
-    if (s > INT_MAX - sizeof(Udata))
-        luaM_toobig(L);
-    Udata* u = luaM_new(L, Udata, sizeudata(s), L->activememcat);
-    luaC_link(L, u, LUA_TUSERDATA);
-    u->len = int(s);
-    u->metatable = NULL;
-    LUAU_ASSERT(tag >= 0 && tag <= 255);
-    u->tag = uint8_t(tag);
-    return u;
-}
+    // Unchain from the string table
+    if (!unlinkstr(L, ts))
+        unlinkstrbuf(L, ts); // An unlikely scenario when we have a string buffer on our hands
+    else
+        L->global->strt.nuse--;
 
-void luaS_freeudata(lua_State* L, Udata* u)
-{
-    LUAU_ASSERT(u->tag < LUA_UTAG_LIMIT || u->tag == UTAG_IDTOR);
-
-    void (*dtor)(void*) = nullptr;
-    if (u->tag == UTAG_IDTOR)
-        memcpy(&dtor, &u->data + u->len - sizeof(dtor), sizeof(dtor));
-    else if (u->tag)
-        dtor = L->global->udatagc[u->tag];
-
-    if (dtor)
-        dtor(u->data);
-
-    luaM_free(L, u, sizeudata(u->len), u->memcat);
+    luaM_freegco(L, ts, sizestring(ts->len), ts->memcat, page);
 }

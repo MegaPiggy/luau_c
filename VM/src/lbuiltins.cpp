@@ -1003,7 +1003,7 @@ static int luauF_tunpack(lua_State* L, StkId res, TValue* arg0, int nresults, St
         else if (nparams == 3 && ttisnumber(args) && ttisnumber(args + 1) && nvalue(args) == 1.0)
             n = int(nvalue(args + 1));
 
-        if (n >= 0 && n <= t->sizearray && cast_int(L->stack_last - res) >= n)
+        if (n >= 0 && n <= t->sizearray && cast_int(L->stack_last - res) >= n && n + nparams <= LUAI_MAXCSTACK)
         {
             TValue* array = t->array;
             for (int i = 0; i < n; ++i)
@@ -1018,18 +1018,20 @@ static int luauF_tunpack(lua_State* L, StkId res, TValue* arg0, int nresults, St
 
 static int luauF_vector(lua_State* L, StkId res, TValue* arg0, int nresults, StkId args, int nparams)
 {
-#if LUA_VECTOR_SIZE == 4
-    if (nparams >= 4 && nresults <= 1 && ttisnumber(arg0) && ttisnumber(args) && ttisnumber(args + 1) && ttisnumber(args + 2))
-#else
     if (nparams >= 3 && nresults <= 1 && ttisnumber(arg0) && ttisnumber(args) && ttisnumber(args + 1))
-#endif
     {
         double x = nvalue(arg0);
         double y = nvalue(args);
         double z = nvalue(args + 1);
 
 #if LUA_VECTOR_SIZE == 4
-        double w = nvalue(args + 2);
+        double w = 0.0;
+        if (nparams >= 4)
+        {
+            if (!ttisnumber(args + 2))
+                return -1;
+            w = nvalue(args + 2);
+        }
         setvvalue(res, float(x), float(y), float(z), float(w));
 #else
         setvvalue(res, float(x), float(y), float(z), 0.0f);
@@ -1082,6 +1084,34 @@ static int luauF_countrz(lua_State* L, StkId res, TValue* arg0, int nresults, St
 
         setnvalue(res, double(r));
         return 1;
+    }
+
+    return -1;
+}
+
+static int luauF_select(lua_State* L, StkId res, TValue* arg0, int nresults, StkId args, int nparams)
+{
+    if (nparams == 1 && nresults == 1)
+    {
+        int n = cast_int(L->base - L->ci->func) - clvalue(L->ci->func)->l.p->numparams - 1;
+
+        if (ttisnumber(arg0))
+        {
+            int i = int(nvalue(arg0));
+
+            // i >= 1 && i <= n
+            if (unsigned(i - 1) < unsigned(n))
+            {
+                setobj2s(L, res, L->base - n + (i - 1));
+                return 1;
+            }
+            // note: for now we don't handle negative case (wrap around) and defer to fallback
+        }
+        else if (ttisstring(arg0) && *svalue(arg0) == '#')
+        {
+            setnvalue(res, double(n));
+            return 1;
+        }
     }
 
     return -1;
@@ -1156,4 +1186,6 @@ luau_FastFunction luauF_table[256] = {
 
     luauF_countlz,
     luauF_countrz,
+
+    luauF_select,
 };

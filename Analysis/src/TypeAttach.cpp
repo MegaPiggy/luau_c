@@ -3,7 +3,6 @@
 
 #include "Luau/Error.h"
 #include "Luau/Module.h"
-#include "Luau/Parser.h"
 #include "Luau/RecursionCounter.h"
 #include "Luau/Scope.h"
 #include "Luau/ToString.h"
@@ -12,8 +11,6 @@
 #include "Luau/TypeVar.h"
 
 #include <string>
-
-LUAU_FASTFLAG(LuauTypeAliasPacks)
 
 static char* allocateString(Luau::Allocator& allocator, std::string_view contents)
 {
@@ -97,9 +94,24 @@ public:
         }
     }
 
+    AstType* operator()(const BlockedTypeVar& btv)
+    {
+        return allocator->alloc<AstTypeReference>(Location(), std::nullopt, AstName("*blocked*"));
+    }
+
+    AstType* operator()(const ConstrainedTypeVar& ctv)
+    {
+        AstArray<AstType*> types;
+        types.size = ctv.parts.size();
+        types.data = static_cast<AstType**>(allocator->allocate(sizeof(AstType*) * ctv.parts.size()));
+        for (size_t i = 0; i < ctv.parts.size(); ++i)
+            types.data[i] = Luau::visit(*this, ctv.parts[i]->ty);
+        return allocator->alloc<AstTypeIntersection>(Location(), types);
+    }
+
     AstType* operator()(const SingletonTypeVar& stv)
     {
-        if (const BoolSingleton* bs = get<BoolSingleton>(&stv))
+        if (const BooleanSingleton* bs = get<BooleanSingleton>(&stv))
             return allocator->alloc<AstTypeSingletonBool>(Location(), bs->value);
         else if (const StringSingleton* ss = get<StringSingleton>(&stv))
         {
@@ -131,12 +143,9 @@ public:
                 parameters.data[i] = {Luau::visit(*this, ttv.instantiatedTypeParams[i]->ty), {}};
             }
 
-            if (FFlag::LuauTypeAliasPacks)
+            for (size_t i = 0; i < ttv.instantiatedTypePackParams.size(); ++i)
             {
-                for (size_t i = 0; i < ttv.instantiatedTypePackParams.size(); ++i)
-                {
-                    parameters.data[i] = {{}, rehydrate(ttv.instantiatedTypePackParams[i])};
-                }
+                parameters.data[i] = {{}, rehydrate(ttv.instantiatedTypePackParams[i])};
             }
 
             return allocator->alloc<AstTypeReference>(Location(), std::nullopt, AstName(ttv.name->c_str()), parameters.size != 0, parameters);
@@ -217,24 +226,24 @@ public:
         if (hasSeen(&ftv))
             return allocator->alloc<AstTypeReference>(Location(), std::nullopt, AstName("<Cycle>"));
 
-        AstArray<AstName> generics;
+        AstArray<AstGenericType> generics;
         generics.size = ftv.generics.size();
-        generics.data = static_cast<AstName*>(allocator->allocate(sizeof(AstName) * generics.size));
+        generics.data = static_cast<AstGenericType*>(allocator->allocate(sizeof(AstGenericType) * generics.size));
         size_t numGenerics = 0;
         for (auto it = ftv.generics.begin(); it != ftv.generics.end(); ++it)
         {
             if (auto gtv = get<GenericTypeVar>(*it))
-                generics.data[numGenerics++] = AstName(gtv->name.c_str());
+                generics.data[numGenerics++] = {AstName(gtv->name.c_str()), Location(), nullptr};
         }
 
-        AstArray<AstName> genericPacks;
+        AstArray<AstGenericTypePack> genericPacks;
         genericPacks.size = ftv.genericPacks.size();
-        genericPacks.data = static_cast<AstName*>(allocator->allocate(sizeof(AstName) * genericPacks.size));
+        genericPacks.data = static_cast<AstGenericTypePack*>(allocator->allocate(sizeof(AstGenericTypePack) * genericPacks.size));
         size_t numGenericPacks = 0;
         for (auto it = ftv.genericPacks.begin(); it != ftv.genericPacks.end(); ++it)
         {
             if (auto gtv = get<GenericTypeVar>(*it))
-                genericPacks.data[numGenericPacks++] = AstName(gtv->name.c_str());
+                genericPacks.data[numGenericPacks++] = {AstName(gtv->name.c_str()), Location(), nullptr};
         }
 
         AstArray<AstType*> argTypes;
@@ -250,20 +259,7 @@ public:
 
         AstTypePack* argTailAnnotation = nullptr;
         if (argTail)
-        {
-            if (FFlag::LuauTypeAliasPacks)
-            {
-                argTailAnnotation = rehydrate(*argTail);
-            }
-            else
-            {
-                TypePackId tail = *argTail;
-                if (const VariadicTypePack* vtp = get<VariadicTypePack>(tail))
-                {
-                    argTailAnnotation = allocator->alloc<AstTypePackVariadic>(Location(), Luau::visit(*this, vtp->ty->ty));
-                }
-            }
-        }
+            argTailAnnotation = rehydrate(*argTail);
 
         AstArray<std::optional<AstArgumentName>> argNames;
         argNames.size = ftv.argNames.size();
@@ -280,7 +276,7 @@ public:
         }
 
         AstArray<AstType*> returnTypes;
-        const auto& [retVector, retTail] = flatten(ftv.retType);
+        const auto& [retVector, retTail] = flatten(ftv.retTypes);
         returnTypes.size = retVector.size();
         returnTypes.data = static_cast<AstType**>(allocator->allocate(sizeof(AstType*) * returnTypes.size));
         for (size_t i = 0; i < returnTypes.size; ++i)
@@ -292,20 +288,7 @@ public:
 
         AstTypePack* retTailAnnotation = nullptr;
         if (retTail)
-        {
-            if (FFlag::LuauTypeAliasPacks)
-            {
-                retTailAnnotation = rehydrate(*retTail);
-            }
-            else
-            {
-                TypePackId tail = *retTail;
-                if (const VariadicTypePack* vtp = get<VariadicTypePack>(tail))
-                {
-                    retTailAnnotation = allocator->alloc<AstTypePackVariadic>(Location(), Luau::visit(*this, vtp->ty->ty));
-                }
-            }
-        }
+            retTailAnnotation = rehydrate(*retTail);
 
         return allocator->alloc<AstTypeFunction>(
             Location(), generics, genericPacks, AstTypeList{argTypes, argTailAnnotation}, argNames, AstTypeList{returnTypes, retTailAnnotation});
@@ -396,6 +379,9 @@ public:
 
     AstTypePack* operator()(const VariadicTypePack& vtp) const
     {
+        if (vtp.hidden)
+            return nullptr;
+
         return allocator->alloc<AstTypePackVariadic>(Location(), Luau::visit(*typeVisitor, vtp.ty->ty));
     }
 
@@ -498,6 +484,20 @@ public:
     {
         return visitLocal(al->local);
     }
+
+    virtual bool visit(AstStatFor* stat) override
+    {
+        visitLocal(stat->var);
+        return true;
+    }
+
+    virtual bool visit(AstStatForIn* stat) override
+    {
+        for (size_t i = 0; i < stat->vars.size; ++i)
+            visitLocal(stat->vars.data[i]);
+        return true;
+    }
+
     virtual bool visit(AstExprFunction* fn) override
     {
         // TODO: add generics if the inferred type of the function is generic CLI-39908
@@ -507,29 +507,17 @@ public:
             visitLocal(arg);
         }
 
-        if (!fn->hasReturnAnnotation)
+        if (!fn->returnAnnotation)
         {
             if (auto result = getScope(fn->body->location))
             {
                 TypePackId ret = result->returnType;
-                fn->hasReturnAnnotation = true;
 
                 AstTypePack* variadicAnnotation = nullptr;
                 const auto& [v, tail] = flatten(ret);
 
                 if (tail)
-                {
-                    if (FFlag::LuauTypeAliasPacks)
-                    {
-                        variadicAnnotation = TypeRehydrationVisitor(allocator, &syntheticNames).rehydrate(*tail);
-                    }
-                    else
-                    {
-                        TypePackId tailPack = *tail;
-                        if (const VariadicTypePack* vtp = get<VariadicTypePack>(tailPack))
-                            variadicAnnotation = allocator->alloc<AstTypePackVariadic>(Location(), typeAst(vtp->ty));
-                    }
-                }
+                    variadicAnnotation = TypeRehydrationVisitor(allocator, &syntheticNames).rehydrate(*tail);
 
                 fn->returnAnnotation = AstTypeList{typeAstPack(ret), variadicAnnotation};
             }

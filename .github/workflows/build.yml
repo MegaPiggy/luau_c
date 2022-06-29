@@ -9,12 +9,14 @@ on:
       - 'papers/**'
       - 'rfcs/**'
       - '*.md'
+      - 'prototyping/**'
   pull_request:
     paths-ignore:
       - 'docs/**'
       - 'papers/**'
       - 'rfcs/**'
       - '*.md'
+      - 'prototyping/**'
 
 jobs:
   unix:
@@ -66,22 +68,24 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
-    env:
-      NODE_COVERALLS_DEBUG: 1
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: install
       run: |
         sudo apt install llvm
     - name: make coverage
       run: |
         CXX=clang++-10 make -j2 config=coverage coverage
+    - name: debug coverage
+      run: |
+        git status
+        git log -5
+        echo SHA: $GITHUB_SHA
     - name: upload coverage
       uses: coverallsapp/github-action@master
       with:
         path-to-lcov: ./coverage.info
         github-token: ${{ secrets.GITHUB_TOKEN }}
-      continue-on-error: true
     - uses: actions/upload-artifact@v2
       with:
         name: coverage

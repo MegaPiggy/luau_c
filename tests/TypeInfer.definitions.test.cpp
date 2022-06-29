@@ -1,6 +1,5 @@
 // This file is part of the Luau programming language and is licensed under MIT License; see LICENSE.txt for details
 #include "Luau/BuiltinDefinitions.h"
-#include "Luau/Parser.h"
 #include "Luau/TypeInfer.h"
 #include "Luau/TypeVar.h"
 
@@ -292,6 +291,22 @@ TEST_CASE_FIXTURE(Fixture, "documentation_symbols_dont_attach_to_persistent_type
     std::optional<TypeFun> ty = typeChecker.globalScope->lookupType("Evil");
     REQUIRE(bool(ty));
     CHECK_EQ(ty->type->documentationSymbol, std::nullopt);
+}
+
+TEST_CASE_FIXTURE(Fixture, "single_class_type_identity_in_global_types")
+{
+    loadDefinition(R"(
+declare class Cls
+end
+
+declare GetCls: () -> (Cls)
+    )");
+
+    CheckResult result = check(R"(
+local s : Cls = GetCls()
+    )");
+
+    LUAU_REQUIRE_NO_ERRORS(result);
 }
 
 TEST_SUITE_END();

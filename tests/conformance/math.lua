@@ -26,6 +26,7 @@ function f(...)
   end
 end
 
+assert(pcall(tonumber) == false)
 assert(tonumber{} == nil)
 assert(tonumber'+0.01' == 1/100 and tonumber'+.01' == 0.01 and
        tonumber'.01' == 0.01    and tonumber'-1.' == -1 and
@@ -411,6 +412,7 @@ assert(math.sqrt("4") == 2)
 assert(math.tanh("0") == 0)
 assert(math.tan("0") == 0)
 assert(math.clamp("0", 2, 3) == 2)
+assert(math.clamp("4", 2, 3) == 3)
 assert(math.sign("2") == 1)
 assert(math.sign("-2") == -1)
 assert(math.sign("0") == 0)

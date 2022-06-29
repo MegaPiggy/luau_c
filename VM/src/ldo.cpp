@@ -17,10 +17,6 @@
 
 #include <string.h>
 
-LUAU_FASTFLAGVARIABLE(LuauExceptionMessageFix, false)
-LUAU_FASTFLAGVARIABLE(LuauCcallRestoreFix, false)
-LUAU_FASTFLAG(LuauCoroutineClose)
-
 /*
 ** {======================================================
 ** Error-recovery functions
@@ -35,6 +31,15 @@ struct lua_jmpbuf
     jmp_buf buf;
 };
 
+/* use POSIX versions of setjmp/longjmp if possible: they don't save/restore signal mask and are therefore faster */
+#if defined(__linux__) || defined(__APPLE__)
+#define LUAU_SETJMP(buf) _setjmp(buf)
+#define LUAU_LONGJMP(buf, code) _longjmp(buf, code)
+#else
+#define LUAU_SETJMP(buf) setjmp(buf)
+#define LUAU_LONGJMP(buf, code) longjmp(buf, code)
+#endif
+
 int luaD_rawrunprotected(lua_State* L, Pfunc f, void* ud)
 {
     lua_jmpbuf jb;
@@ -42,7 +47,7 @@ int luaD_rawrunprotected(lua_State* L, Pfunc f, void* ud)
     jb.status = 0;
     L->global->errorjmp = &jb;
 
-    if (setjmp(jb.buf) == 0)
+    if (LUAU_SETJMP(jb.buf) == 0)
         f(L, ud);
 
     L->global->errorjmp = jb.prev;
@@ -54,7 +59,7 @@ l_noret luaD_throw(lua_State* L, int errcode)
     if (lua_jmpbuf* jb = L->global->errorjmp)
     {
         jb->status = errcode;
-        longjmp(jb->buf, 1);
+        LUAU_LONGJMP(jb->buf, 1);
     }
 
     if (L->global->cb.panic)
@@ -74,35 +79,28 @@ public:
 
     const char* what() const throw() override
     {
-        if (FFlag::LuauExceptionMessageFix)
+        // LUA_ERRRUN/LUA_ERRSYNTAX pass an object on the stack which is intended to describe the error.
+        if (status == LUA_ERRRUN || status == LUA_ERRSYNTAX)
         {
-            // LUA_ERRRUN/LUA_ERRSYNTAX pass an object on the stack which is intended to describe the error.
-            if (status == LUA_ERRRUN || status == LUA_ERRSYNTAX)
+            // Conversion to a string could still fail.  For example if a user passes a non-string/non-number argument to `error()`.
+            if (const char* str = lua_tostring(L, -1))
             {
-                // Conversion to a string could still fail.  For example if a user passes a non-string/non-number argument to `error()`.
-                if (const char* str = lua_tostring(L, -1))
-                {
-                    return str;
-                }
-            }
-
-            switch (status)
-            {
-            case LUA_ERRRUN:
-                return "lua_exception: LUA_ERRRUN (no string/number provided as description)";
-            case LUA_ERRSYNTAX:
-                return "lua_exception: LUA_ERRSYNTAX (no string/number provided as description)";
-            case LUA_ERRMEM:
-                return "lua_exception: " LUA_MEMERRMSG;
-            case LUA_ERRERR:
-                return "lua_exception: " LUA_ERRERRMSG;
-            default:
-                return "lua_exception: unexpected exception status";
+                return str;
             }
         }
-        else
+
+        switch (status)
         {
-            return lua_tostring(L, -1);
+        case LUA_ERRRUN:
+            return "lua_exception: LUA_ERRRUN (no string/number provided as description)";
+        case LUA_ERRSYNTAX:
+            return "lua_exception: LUA_ERRSYNTAX (no string/number provided as description)";
+        case LUA_ERRMEM:
+            return "lua_exception: " LUA_MEMERRMSG;
+        case LUA_ERRERR:
+            return "lua_exception: " LUA_ERRERRMSG;
+        default:
+            return "lua_exception: unexpected exception status";
         }
     }
 
@@ -159,12 +157,10 @@ l_noret luaD_throw(lua_State* L, int errcode)
 
 static void correctstack(lua_State* L, TValue* oldstack)
 {
-    CallInfo* ci;
-    GCObject* up;
     L->top = (L->top - oldstack) + L->stack;
-    for (up = L->openupval; up != NULL; up = up->gch.next)
-        gco2uv(up)->v = (gco2uv(up)->v - oldstack) + L->stack;
-    for (ci = L->base_ci; ci <= L->ci; ci++)
+    for (UpVal* up = L->openupval; up != NULL; up = up->u.l.threadnext)
+        up->v = (up->v - oldstack) + L->stack;
+    for (CallInfo* ci = L->base_ci; ci <= L->ci; ci++)
     {
         ci->top = (ci->top - oldstack) + L->stack;
         ci->base = (ci->base - oldstack) + L->stack;
@@ -176,13 +172,14 @@ static void correctstack(lua_State* L, TValue* oldstack)
 void luaD_reallocstack(lua_State* L, int newsize)
 {
     TValue* oldstack = L->stack;
-    int realsize = newsize + 1 + EXTRA_STACK;
-    LUAU_ASSERT(L->stack_last - L->stack == L->stacksize - EXTRA_STACK - 1);
+    int realsize = newsize + EXTRA_STACK;
+    LUAU_ASSERT(L->stack_last - L->stack == L->stacksize - EXTRA_STACK);
     luaM_reallocarray(L, L->stack, L->stacksize, realsize, TValue, L->memcat);
+    TValue* newstack = L->stack;
     for (int i = L->stacksize; i < realsize; i++)
-        setnilvalue(L->stack + i); /* erase new segment */
+        setnilvalue(newstack + i); /* erase new segment */
     L->stacksize = realsize;
-    L->stack_last = L->stack + newsize;
+    L->stack_last = newstack + newsize;
     correctstack(L, oldstack);
 }
 
@@ -205,15 +202,30 @@ void luaD_growstack(lua_State* L, int n)
 
 CallInfo* luaD_growCI(lua_State* L)
 {
-    if (L->size_ci > LUAI_MAXCALLS) /* overflow while handling overflow? */
-        luaD_throw(L, LUA_ERRERR);
-    else
-    {
-        luaD_reallocCI(L, 2 * L->size_ci);
-        if (L->size_ci > LUAI_MAXCALLS)
-            luaG_runerror(L, "stack overflow");
-    }
+    /* allow extra stack space to handle stack overflow in xpcall */
+    const int hardlimit = LUAI_MAXCALLS + (LUAI_MAXCALLS >> 3);
+
+    if (L->size_ci >= hardlimit)
+        luaD_throw(L, LUA_ERRERR); /* error while handling stack error */
+
+    int request = L->size_ci * 2;
+    luaD_reallocCI(L, L->size_ci >= LUAI_MAXCALLS ? hardlimit : request < LUAI_MAXCALLS ? request : LUAI_MAXCALLS);
+
+    if (L->size_ci > LUAI_MAXCALLS)
+        luaG_runerror(L, "stack overflow");
+
     return ++L->ci;
+}
+
+void luaD_checkCstack(lua_State* L)
+{
+    /* allow extra stack space to handle stack overflow in xpcall */
+    const int hardlimit = LUAI_MAXCCALLS + (LUAI_MAXCCALLS >> 3);
+
+    if (L->nCcalls == LUAI_MAXCCALLS)
+        luaG_runerror(L, "C stack overflow");
+    else if (L->nCcalls >= hardlimit)
+        luaD_throw(L, LUA_ERRERR); /* error while handling stack error */
 }
 
 /*
@@ -225,17 +237,22 @@ CallInfo* luaD_growCI(lua_State* L)
 void luaD_call(lua_State* L, StkId func, int nResults)
 {
     if (++L->nCcalls >= LUAI_MAXCCALLS)
-    {
-        if (L->nCcalls == LUAI_MAXCCALLS)
-            luaG_runerror(L, "C stack overflow");
-        else if (L->nCcalls >= (LUAI_MAXCCALLS + (LUAI_MAXCCALLS >> 3)))
-            luaD_throw(L, LUA_ERRERR); /* error while handing stack error */
-    }
+        luaD_checkCstack(L);
+
     if (luau_precall(L, func, nResults) == PCRLUA)
     {                                        /* is a Lua function? */
         L->ci->flags |= LUA_CALLINFO_RETURN; /* luau_execute will stop after returning from the stack frame */
-        luau_execute(L);                     /* call it */
+
+        int oldactive = luaC_threadactive(L);
+        l_setbit(L->stackstate, THREAD_ACTIVEBIT);
+        luaC_checkthreadsleep(L);
+
+        luau_execute(L); /* call it */
+
+        if (!oldactive)
+            resetbit(L->stackstate, THREAD_ACTIVEBIT);
     }
+
     L->nCcalls--;
     luaC_checkGC(L);
 }
@@ -302,7 +319,7 @@ static void resume(lua_State* L, void* ud)
     {
         // start coroutine
         LUAU_ASSERT(L->ci == L->base_ci && firstArg >= L->base);
-        if (FFlag::LuauCoroutineClose && firstArg == L->base)
+        if (firstArg == L->base)
             luaG_runerror(L, "cannot resume dead coroutine");
 
         if (luau_precall(L, firstArg - 1, LUA_MULTRET) != PCRLUA)
@@ -516,7 +533,7 @@ static void callerrfunc(lua_State* L, void* ud)
 
 static void restore_stack_limit(lua_State* L)
 {
-    LUAU_ASSERT(L->stack_last - L->stack == L->stacksize - EXTRA_STACK - 1);
+    LUAU_ASSERT(L->stack_last - L->stack == L->stacksize - EXTRA_STACK);
     if (L->size_ci > LUAI_MAXCALLS)
     { /* there was an overflow? */
         int inuse = cast_int(L->ci - L->base_ci);
@@ -527,10 +544,10 @@ static void restore_stack_limit(lua_State* L)
 
 int luaD_pcall(lua_State* L, Pfunc func, void* u, ptrdiff_t old_top, ptrdiff_t ef)
 {
-    int status;
     unsigned short oldnCcalls = L->nCcalls;
     ptrdiff_t old_ci = saveci(L, L->ci);
-    status = luaD_rawrunprotected(L, func, u);
+    int oldactive = luaC_threadactive(L);
+    int status = luaD_rawrunprotected(L, func, u);
     if (status != 0)
     {
         // call user-defined error function (used in xpcall)
@@ -541,11 +558,12 @@ int luaD_pcall(lua_State* L, Pfunc func, void* u, ptrdiff_t old_top, ptrdiff_t e
                 status = LUA_ERRERR;
         }
 
-        if (FFlag::LuauCcallRestoreFix)
-        {
-            // Restore nCcalls before calling the debugprotectederror callback which may rely on the proper value to have been restored.
-            L->nCcalls = oldnCcalls;
-        }
+        // since the call failed with an error, we might have to reset the 'active' thread state
+        if (!oldactive)
+            resetbit(L->stackstate, THREAD_ACTIVEBIT);
+
+        // Restore nCcalls before calling the debugprotectederror callback which may rely on the proper value to have been restored.
+        L->nCcalls = oldnCcalls;
 
         // an error occurred, check if we have a protected error callback
         if (L->global->cb.debugprotectederror)
@@ -560,10 +578,6 @@ int luaD_pcall(lua_State* L, Pfunc func, void* u, ptrdiff_t old_top, ptrdiff_t e
         StkId oldtop = restorestack(L, old_top);
         luaF_close(L, oldtop); /* close eventual pending closures */
         seterrorobj(L, status, oldtop);
-        if (!FFlag::LuauCcallRestoreFix)
-        {
-            L->nCcalls = oldnCcalls;
-        }
         L->ci = restoreci(L, old_ci);
         L->base = L->ci->base;
         restore_stack_limit(L);

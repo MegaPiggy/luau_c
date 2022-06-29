@@ -173,7 +173,7 @@ public:
     }
 
     const Lexeme& next();
-    const Lexeme& next(bool skipComments);
+    const Lexeme& next(bool skipComments, bool updatePrevLocation);
     void nextline();
 
     Lexeme lookahead();
@@ -232,5 +232,10 @@ private:
     bool skipComments;
     bool readNames;
 };
+
+inline bool isSpace(char ch)
+{
+    return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || ch == '\v' || ch == '\f';
+}
 
 } // namespace Luau

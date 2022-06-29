@@ -1,8 +1,8 @@
 // This file is part of the Luau programming language and is licensed under MIT License; see LICENSE.txt for details
-#include "Luau/Parser.h"
 #include "Luau/Scope.h"
 #include "Luau/TypeInfer.h"
 #include "Luau/TypeVar.h"
+#include "Luau/VisitTypeVar.h"
 
 #include "Fixture.h"
 #include "ScopedFlags.h"
@@ -260,13 +260,11 @@ TEST_CASE_FIXTURE(Fixture, "substitution_skip_failure")
 
     TypeId result = typeChecker.anyify(typeChecker.globalScope, root, Location{});
 
-    CHECK_EQ("{ f: t1 } where t1 = () -> { f: () -> { f: ({ f: t1 }) -> (), signal: { f: (any) -> () } } }", toString(result));
+    CHECK_EQ("{| f: t1 |} where t1 = () -> {| f: () -> {| f: ({| f: t1 |}) -> (), signal: {| f: (any) -> () |} |} |}", toString(result));
 }
 
 TEST_CASE("tagging_tables")
 {
-    ScopedFastFlag sff{"LuauRefactorTagging", true};
-
     TypeVar ttv{TableTypeVar{}};
     CHECK(!Luau::hasTag(&ttv, "foo"));
     Luau::attachTag(&ttv, "foo");
@@ -275,9 +273,7 @@ TEST_CASE("tagging_tables")
 
 TEST_CASE("tagging_classes")
 {
-    ScopedFastFlag sff{"LuauRefactorTagging", true};
-
-    TypeVar base{ClassTypeVar{"Base", {}, std::nullopt, std::nullopt, {}, nullptr}};
+    TypeVar base{ClassTypeVar{"Base", {}, std::nullopt, std::nullopt, {}, nullptr, "Test"}};
     CHECK(!Luau::hasTag(&base, "foo"));
     Luau::attachTag(&base, "foo");
     CHECK(Luau::hasTag(&base, "foo"));
@@ -285,10 +281,8 @@ TEST_CASE("tagging_classes")
 
 TEST_CASE("tagging_subclasses")
 {
-    ScopedFastFlag sff{"LuauRefactorTagging", true};
-
-    TypeVar base{ClassTypeVar{"Base", {}, std::nullopt, std::nullopt, {}, nullptr}};
-    TypeVar derived{ClassTypeVar{"Derived", {}, &base, std::nullopt, {}, nullptr}};
+    TypeVar base{ClassTypeVar{"Base", {}, std::nullopt, std::nullopt, {}, nullptr, "Test"}};
+    TypeVar derived{ClassTypeVar{"Derived", {}, &base, std::nullopt, {}, nullptr, "Test"}};
 
     CHECK(!Luau::hasTag(&base, "foo"));
     CHECK(!Luau::hasTag(&derived, "foo"));
@@ -304,8 +298,6 @@ TEST_CASE("tagging_subclasses")
 
 TEST_CASE("tagging_functions")
 {
-    ScopedFastFlag sff{"LuauRefactorTagging", true};
-
     TypePackVar empty{TypePack{}};
     TypeVar ftv{FunctionTypeVar{&empty, &empty}};
     CHECK(!Luau::hasTag(&ftv, "foo"));
@@ -315,12 +307,133 @@ TEST_CASE("tagging_functions")
 
 TEST_CASE("tagging_props")
 {
-    ScopedFastFlag sff{"LuauRefactorTagging", true};
-
     Property prop{};
     CHECK(!Luau::hasTag(prop, "foo"));
     Luau::attachTag(prop, "foo");
     CHECK(Luau::hasTag(prop, "foo"));
+}
+
+struct VisitCountTracker final : TypeVarOnceVisitor
+{
+    std::unordered_map<TypeId, unsigned> tyVisits;
+    std::unordered_map<TypePackId, unsigned> tpVisits;
+
+    void cycle(TypeId) override {}
+    void cycle(TypePackId) override {}
+
+    template<typename T>
+    bool operator()(TypeId ty, const T& t)
+    {
+        return visit(ty);
+    }
+
+    template<typename T>
+    bool operator()(TypePackId tp, const T&)
+    {
+        return visit(tp);
+    }
+
+    bool visit(TypeId ty) override
+    {
+        tyVisits[ty]++;
+        return true;
+    }
+
+    bool visit(TypePackId tp) override
+    {
+        tpVisits[tp]++;
+        return true;
+    }
+};
+
+TEST_CASE_FIXTURE(Fixture, "visit_once")
+{
+    CheckResult result = check(R"(
+type T = { a: number, b: () -> () }
+local b: (T, T, T) -> T
+)");
+    LUAU_REQUIRE_NO_ERRORS(result);
+
+    TypeId bType = requireType("b");
+
+    VisitCountTracker tester;
+    tester.traverse(bType);
+
+    for (auto [_, count] : tester.tyVisits)
+        CHECK_EQ(count, 1);
+
+    for (auto [_, count] : tester.tpVisits)
+        CHECK_EQ(count, 1);
+}
+
+TEST_CASE("isString_on_string_singletons")
+{
+    TypeVar helloString{SingletonTypeVar{StringSingleton{"hello"}}};
+    CHECK(isString(&helloString));
+}
+
+TEST_CASE("isString_on_unions_of_various_string_singletons")
+{
+    TypeVar helloString{SingletonTypeVar{StringSingleton{"hello"}}};
+    TypeVar byeString{SingletonTypeVar{StringSingleton{"bye"}}};
+    TypeVar union_{UnionTypeVar{{&helloString, &byeString}}};
+
+    CHECK(isString(&union_));
+}
+
+TEST_CASE("proof_that_isString_uses_all_of")
+{
+    TypeVar helloString{SingletonTypeVar{StringSingleton{"hello"}}};
+    TypeVar byeString{SingletonTypeVar{StringSingleton{"bye"}}};
+    TypeVar booleanType{PrimitiveTypeVar{PrimitiveTypeVar::Boolean}};
+    TypeVar union_{UnionTypeVar{{&helloString, &byeString, &booleanType}}};
+
+    CHECK(!isString(&union_));
+}
+
+TEST_CASE("isBoolean_on_boolean_singletons")
+{
+    TypeVar trueBool{SingletonTypeVar{BooleanSingleton{true}}};
+    CHECK(isBoolean(&trueBool));
+}
+
+TEST_CASE("isBoolean_on_unions_of_true_or_false_singletons")
+{
+    TypeVar trueBool{SingletonTypeVar{BooleanSingleton{true}}};
+    TypeVar falseBool{SingletonTypeVar{BooleanSingleton{false}}};
+    TypeVar union_{UnionTypeVar{{&trueBool, &falseBool}}};
+
+    CHECK(isBoolean(&union_));
+}
+
+TEST_CASE("proof_that_isBoolean_uses_all_of")
+{
+    TypeVar trueBool{SingletonTypeVar{BooleanSingleton{true}}};
+    TypeVar falseBool{SingletonTypeVar{BooleanSingleton{false}}};
+    TypeVar stringType{PrimitiveTypeVar{PrimitiveTypeVar::String}};
+    TypeVar union_{UnionTypeVar{{&trueBool, &falseBool, &stringType}}};
+
+    CHECK(!isBoolean(&union_));
+}
+
+TEST_CASE("content_reassignment")
+{
+    ScopedFastFlag luauNonCopyableTypeVarFields{"LuauNonCopyableTypeVarFields", true};
+
+    TypeVar myAny{AnyTypeVar{}, /*presistent*/ true};
+    myAny.normal = true;
+    myAny.documentationSymbol = "@global/any";
+
+    TypeArena arena;
+
+    TypeId futureAny = arena.addType(FreeTypeVar{TypeLevel{}});
+    asMutable(futureAny)->reassign(myAny);
+
+    CHECK(get<AnyTypeVar>(futureAny) != nullptr);
+    CHECK(!futureAny->persistent);
+    CHECK(futureAny->normal);
+    CHECK(futureAny->documentationSymbol == "@global/any");
+    CHECK(futureAny->owningArena == &arena);
 }
 
 TEST_SUITE_END();
