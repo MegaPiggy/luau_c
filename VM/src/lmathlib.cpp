@@ -29,6 +29,9 @@
 #define PI (3.14159265358979323846)
 #define RADIANS_PER_DEGREE (PI / 180.0)
 
+#undef TAU
+#define TAU (PI * 2)
+
 #define PCG32_INC 105
 
 static uint32_t pcg32_random(uint64_t* state)
@@ -854,6 +857,8 @@ int luaopen_math(lua_State* L)
     luaL_register(L, LUA_MATHLIBNAME, mathlib);
     lua_pushnumber(L, PI);
     lua_setfield(L, -2, "pi");
+    lua_pushnumber(L, TAU);
+    lua_setfield(L, -2, "tau");
     lua_pushnumber(L, HUGE_VAL);
     lua_setfield(L, -2, "huge");
     lua_pushnumber(L, EPSILON);

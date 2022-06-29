@@ -193,6 +193,7 @@ static const std::string kNames[] = {
     "table",
     "tan",
     "tanh",
+    "tau",
     "tgamma",
     "thread",
     "time",

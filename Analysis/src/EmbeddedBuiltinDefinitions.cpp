@@ -57,6 +57,7 @@ declare math: {
     max: (number, ...number) -> number,
 
     pi: number,
+    tau: number,
     huge: number,
 
     randomseed: (number) -> (),

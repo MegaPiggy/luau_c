@@ -95,6 +95,7 @@ TEST_CASE_FIXTURE(BuiltinsFixture, "math_things_are_defined")
         local a79 = math.trunc
         local a80 = math.type
         local a81 = math.ult
+        local a82 = math.tau
     )");
 
     LUAU_REQUIRE_NO_ERRORS(result);
@@ -392,6 +393,7 @@ TEST_CASE_FIXTURE(BuiltinsFixture, "lua_51_exported_globals_all_exist")
         local v_math_root = math.root
         local v_math_scalbn = math.scalbn
         local v_math_signbit = math.signbit
+        local v_math_tau = math.tau
         local v_math_tgamma = math.tgamma
         local v_math_tointeger = math.tointeger
         local v_math_trunc = math.trunc
