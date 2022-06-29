@@ -259,6 +259,8 @@ TEST_CASE_FIXTURE(BuiltinsFixture, "lua_51_exported_globals_all_exist")
         local v_string_gsub = string.gsub
         local v_string_lower = string.lower
         local v_string_trim = string.trim
+        local v_string_trimend = string.trimend
+        local v_string_trimstart = string.trimstart
         local v_string_index = string.index
 
         local v_xpcall = xpcall
@@ -885,6 +887,8 @@ TEST_CASE_FIXTURE(BuiltinsFixture, "string_lib_self_noself")
         local a0 = string.packsize("ff")
         local b1 = string.trim(" abc ")
         local b2 = string.index("abc", 2)
+        local b3 = string.trimstart(" abc ")
+        local b4 = string.trimend(" abc ")
     )");
 
     LUAU_REQUIRE_NO_ERRORS(result);

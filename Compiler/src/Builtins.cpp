@@ -260,6 +260,10 @@ int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& options)
             return LBF_STRING_SUB;
         if (builtin.method == "trim")
             return LBF_STRING_TRIM;
+        if (builtin.method == "trimstart")
+            return LBF_STRING_TRIM_START;
+        if (builtin.method == "trimend")
+            return LBF_STRING_TRIM_END;
         if (builtin.method == "index")
             return LBF_STRING_INDEX;
     }

@@ -201,6 +201,8 @@ static const std::string kNames[] = {
     "tostring",
     "traceback",
     "trim",
+    "trimend",
+    "trimstart",
     "trunc",
     "type",
     "typeof",

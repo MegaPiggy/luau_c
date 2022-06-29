@@ -24,6 +24,8 @@ print('+')
 --remove whitespace
 assert(string.trim(" hello ") == "hello")
 assert(string.trim(" . hello ") == ". hello")
+assert(string.trimstart(" hello ") == "hello ")
+assert(string.trimend(" hello ") == " hello")
 
 --get character at index from string
 assert(string.index("abc", 1) == "a")

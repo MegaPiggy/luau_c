@@ -542,6 +542,8 @@ enum LuauBuiltinFunction
 
     // string.
     LBF_STRING_TRIM,
+    LBF_STRING_TRIM_START,
+    LBF_STRING_TRIM_END,
 
     // wait()
     LBF_WAIT,
